@@ -1,0 +1,1715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>🍉 Fruit Party!</title>
+<style>
+  /* ---------- layout: everything is fixed full-screen layers ---------- */
+  * { margin:0; padding:0; box-sizing:border-box;
+      -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; width:100%; position:fixed; overflow:hidden;
+      font-family:-apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { background:linear-gradient(160deg,#3b1a72,#0f4d92,#0e7a5f);
+      background-size:300% 300%; animation:bgshift 16s ease infinite; }
+  @keyframes bgshift { 0%{background-position:0% 0%} 50%{background-position:100% 100%} 100%{background-position:0% 0%} }
+
+  /* mirrored selfie camera behind the game canvas (hidden until camera starts) */
+  #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover;
+         transform:scaleX(-1); display:none; }
+  #game { position:fixed; inset:0; touch-action:none; cursor:crosshair; }
+
+  /* ---------- live video call layers ---------- */
+  /* role classes: a video is either the fullscreen backdrop (.vid-bg) or the
+     small corner picture-in-picture (.vid-pip); JS swaps the roles */
+  #remoteVid { display:none; background:#000; }
+  #remoteVid.vid-bg { position:fixed; inset:0; width:100%; height:100%;
+      object-fit:cover; border:none; border-radius:0; z-index:0; }
+  #cam.vid-pip, #remoteVid.vid-pip { position:fixed; inset:auto; width:min(30vw, 200px);
+      height:auto; aspect-ratio:4/3; object-fit:cover; border-radius:16px;
+      border:2px solid rgba(255,255,255,.75); box-shadow:0 8px 24px rgba(0,0,0,.45);
+      z-index:16; background:#000; cursor:pointer; }
+  #cam.vid-pip { transform:scaleX(-1); } /* selfie stays mirrored even when small */
+  #pipTag { position:fixed; z-index:17; width:min(30vw, 200px); aspect-ratio:4/3;
+      pointer-events:none; display:none; }
+  #pipName { position:absolute; left:50%; bottom:6px; transform:translateX(-50%);
+      background:rgba(0,0,0,.55); color:#fff; font-size:13px; font-weight:700;
+      padding:2px 10px; border-radius:999px; max-width:92%; white-space:nowrap; overflow:hidden; }
+  #muteBtn { position:absolute; top:-12px; right:-12px; width:44px; height:44px;
+      border-radius:50%; border:none; font-size:20px; background:rgba(0,0,0,.65);
+      color:#fff; pointer-events:auto; }
+  #muteBtn.muted { background:#c0392b; }
+  /* which corner the PiP lives in (drag to move, default bottom-right) */
+  body[data-pip="br"] #cam.vid-pip, body[data-pip="br"] #remoteVid.vid-pip, body[data-pip="br"] #pipTag
+    { right:12px; bottom:calc(env(safe-area-inset-bottom, 0px) + 76px); }
+  body[data-pip="bl"] #cam.vid-pip, body[data-pip="bl"] #remoteVid.vid-pip, body[data-pip="bl"] #pipTag
+    { left:12px; bottom:calc(env(safe-area-inset-bottom, 0px) + 76px); }
+  body[data-pip="tr"] #cam.vid-pip, body[data-pip="tr"] #remoteVid.vid-pip, body[data-pip="tr"] #pipTag
+    { right:12px; top:calc(env(safe-area-inset-top, 0px) + 70px); }
+  body[data-pip="tl"] #cam.vid-pip, body[data-pip="tl"] #remoteVid.vid-pip, body[data-pip="tl"] #pipTag
+    { left:12px; top:calc(env(safe-area-inset-top, 0px) + 70px); }
+  #sendBadge { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 68px); right:12px;
+      z-index:11; background:rgba(0,0,0,.5); color:#fff; font-size:13px; font-weight:700;
+      padding:5px 12px; border-radius:999px; display:none; }
+  #sendBadge .dot { display:inline-block; width:9px; height:9px; border-radius:50%;
+      background:#ff5050; margin-right:6px; animation:pulse 1.6s ease infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  /* ---------- HUD ---------- */
+  #score { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 4px); left:0; right:0;
+      text-align:center; font-size:min(14vw, 90px); font-weight:900; color:#fff;
+      text-shadow:0 4px 14px rgba(0,0,0,.5); pointer-events:none;
+      transition:transform .12s ease-out; z-index:10; }
+  #score.bump { transform:scale(1.22); }
+  #banner { position:fixed; top:34%; left:0; right:0; text-align:center;
+      font-size:min(20vw, 130px); font-weight:900; color:#ffe45e;
+      text-shadow:0 6px 18px rgba(0,0,0,.55); pointer-events:none; z-index:11;
+      opacity:0; transform:scale(.3); transition:opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
+  #banner.show { opacity:1; transform:scale(1); }
+  #chip { position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 64px); left:50%;
+      transform:translateX(-50%); background:rgba(0,0,0,.5); color:#fff; padding:8px 18px;
+      border-radius:999px; font-size:16px; max-width:92vw; text-align:center;
+      pointer-events:none; opacity:0; transition:opacity .4s; z-index:12; }
+
+  /* live hand-tracking status pill: green = hand seen, yellow = looking, gray = touch */
+  #pill { position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 12px); left:12px;
+      padding:8px 16px; border-radius:999px; font-size:16px; font-weight:700; color:#fff;
+      z-index:12; pointer-events:none; transition:background .3s; }
+  #pill.p-green { background:rgba(27,158,84,.88); }
+  #pill.p-yellow { background:rgba(196,144,10,.92); }
+  #pill.p-gray { background:rgba(90,90,100,.85); }
+  #hint { position:fixed; top:20%; left:50%; transform:translateX(-50%); max-width:88vw;
+      background:rgba(0,0,0,.55); color:#ffe45e; font-size:min(6vw, 26px); font-weight:800;
+      padding:14px 22px; border-radius:18px; text-align:center; z-index:12;
+      pointer-events:none; opacity:0; transition:opacity .4s; }
+  #hint.show { opacity:1; }
+
+  /* ---------- buttons & panels ---------- */
+  button { font-family:inherit; cursor:pointer; }
+  #gear { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 8px); right:12px;
+      width:54px; height:54px; font-size:28px; border:none; border-radius:50%;
+      background:rgba(0,0,0,.35); color:#fff; z-index:20; display:none; }
+  .hidden { display:none !important; }
+  #panel { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:rgba(15,10,45,.92); color:#fff; border-radius:20px; padding:22px 26px;
+      width:min(92vw, 420px); z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  #panel h3 { margin-bottom:14px; font-size:22px; }
+  #panel label { display:flex; align-items:center; gap:10px; font-size:22px; margin:10px 0 18px; }
+  #audState { font-size:13px; opacity:.75; margin:-8px 0 12px; min-height:16px; }
+  #panel input[type=range] { flex:1; height:40px; }
+  #closePanel { display:block; width:100%; padding:14px; font-size:20px; font-weight:700;
+      border:none; border-radius:12px; background:#21c063; color:#fff; }
+  #roomSec { border-top:1px solid rgba(255,255,255,.25); margin:16px 0; padding-top:12px; }
+  #roomSec input { display:block; width:100%; margin:8px 0; padding:12px; font-size:18px;
+      border:none; border-radius:10px; background:rgba(255,255,255,.92); color:#222; }
+  #codeRow { display:flex; align-items:center; gap:8px; margin:4px 0 2px; }
+  #genCode { flex:1; font-size:clamp(17px, 5vw, 24px); font-weight:900; letter-spacing:.5px;
+      background:rgba(255,255,255,.12); border:1px dashed rgba(255,255,255,.45);
+      padding:10px 12px; border-radius:12px; text-align:center; }
+  #newCode { width:46px; height:46px; font-size:22px; border:none; border-radius:10px;
+      background:rgba(255,255,255,.18); color:#fff; }
+  #roomSec .tiny2 { font-size:12px; opacity:.7; margin:2px 0 8px; }
+  #joinBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
+      border-radius:10px; background:#4a7dff; color:#fff; margin:6px 0 4px; }
+  #roomStatus { font-size:14px; opacity:.85; min-height:18px; margin-bottom:8px; }
+  #board { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px); left:12px;
+      z-index:10; pointer-events:none; display:flex; flex-direction:column; gap:6px; }
+  #board .prow { background:rgba(0,0,0,.45); color:#fff; padding:6px 14px; font-size:18px;
+      border-radius:999px; }
+  #board .prow.me { background:rgba(33,192,99,.65); }
+
+  /* ---------- versus mode ---------- */
+  #vsBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
+      border-radius:10px; background:linear-gradient(135deg,#ff5f6d,#ffa334); color:#fff;
+      margin:2px 0 8px; }
+  #vov { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:10px; z-index:15; pointer-events:none; text-align:center;
+      background:rgba(10,5,40,.35); padding:20px; }
+  #vov .v1 { font-size:min(8vw, 46px); font-weight:900; color:#fff;
+      text-shadow:0 4px 14px rgba(0,0,0,.6); }
+  #vov .v2 { font-size:min(30vw, 200px); font-weight:900; color:#ffe45e; line-height:1.05;
+      text-shadow:0 8px 24px rgba(0,0,0,.55); }
+  #vov .v3 { font-size:min(4.5vw, 20px); color:#fff; opacity:.85; }
+  #tbar { position:fixed; top:0; left:0; height:12px; width:100%; display:none; z-index:14;
+      background:linear-gradient(90deg,#21c063,#ffe14f); border-radius:0 8px 8px 0; }
+
+  /* ---------- start screen ---------- */
+  #start { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:18px; text-align:center; padding:24px;
+      background:rgba(12,6,40,.55); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); }
+  #start .fruits { font-size:min(18vw, 96px); animation:bob 2.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+  #start h1 { color:#fff; font-size:min(12vw, 64px); text-shadow:0 4px 14px rgba(0,0,0,.5); }
+  #start p { color:#ffe; font-size:min(5.5vw, 24px); max-width:520px; }
+  #start .tiny { font-size:14px; opacity:.75; }
+  .bigbtn { font-size:min(7vw, 30px); font-weight:800; color:#fff; border:none;
+      padding:20px 46px; border-radius:999px; background:linear-gradient(135deg,#ff5f6d,#ffc371);
+      box-shadow:0 10px 26px rgba(0,0,0,.4); }
+  .bigbtn:active { transform:scale(.95); }
+  .softbtn { font-size:min(4.5vw, 19px); color:#fff; border:1px solid rgba(255,255,255,.5);
+      padding:12px 26px; border-radius:999px; background:rgba(255,255,255,.12); }
+</style>
+</head>
+<body data-pip="br">
+
+<video id="cam" playsinline muted autoplay></video>
+<video id="remoteVid" playsinline autoplay></video>
+<canvas id="game"></canvas>
+<div id="pipTag"><span id="pipName"></span><button id="muteBtn" aria-label="Mute microphone">🎤</button></div>
+<div id="sendBadge"><span class="dot"></span><span id="sendTxt">you're on camera</span></div>
+
+<div id="score">0</div>
+<div id="banner"></div>
+<div id="chip"></div>
+<div id="pill" class="hidden"></div>
+<div id="hint"></div>
+
+<button id="gear" aria-label="Settings">⚙️</button>
+<div id="panel" class="hidden">
+  <h3>⚙️ Fruit speed</h3>
+  <label>🐢 <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> 🐇</label>
+  <div id="audState"></div>
+  <div id="roomSec">
+    <h3>👨‍👧 Play together</h3>
+    <div id="codeRow"><span id="genCode"></span><button id="newCode" aria-label="New code">↻</button></div>
+    <p class="tiny2">Share this code with the other device — or type your own below.</p>
+    <input id="pname" maxlength="12" placeholder="Your name" autocomplete="off">
+    <input id="pcode" maxlength="24" placeholder="Custom code (optional)" autocapitalize="characters" autocomplete="off">
+    <button id="joinBtn">🔗 Join room</button>
+    <button id="vsBtn" class="hidden">⚔️ Versus — take turns! (best of 3)</button>
+    <div id="roomStatus"></div>
+  </div>
+  <button id="closePanel">Done ✔</button>
+</div>
+
+<div id="board"></div>
+<div id="vov" class="hidden">
+  <div class="v1"></div>
+  <div class="v2"></div>
+  <div class="v3"></div>
+</div>
+<div id="tbar"></div>
+
+<div id="start">
+  <div class="fruits">🍉🍓🍊</div>
+  <h1>Fruit Party!</h1>
+  <p>Wave your hand (or swipe a finger) to slice the fruit. No losing — just popping!</p>
+  <button id="btnCam" class="bigbtn">📷 Start (with camera)</button>
+  <button id="btnTouch" class="softbtn">👆 Play without camera</button>
+  <p class="tiny">The camera lets you slice by waving — video never leaves your device.</p>
+</div>
+
+<script>
+/* =====================================================================
+   🍉 FRUIT PARTY — a no-lose fruit slicing game for little kids.
+   Milestone 1: touch & mouse slicing. (Hand tracking arrives in M2.)
+   ===================================================================== */
+
+// ---------- tiny helpers ----------
+const $ = id => document.getElementById(id);
+const rand = (a, b) => a + Math.random() * (b - a);
+const canvas = $('game'), ctx = canvas.getContext('2d');
+const cam = $('cam');
+
+// ---------- canvas sizing (capped so mid-tier iPads keep their fps) ----------
+let W = 0, H = 0, DPR = 1, quality = 1;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  let dpr = Math.min(devicePixelRatio || 1, 2);
+  dpr = Math.min(dpr, Math.sqrt(3.6e6 / (W * H))); // never exceed ~3.6M canvas pixels
+  DPR = Math.max(1, dpr * quality);
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 300)); // iOS reports sizes late
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
+
+// ---------- settings (one slider: fruit speed, saved between visits) ----------
+let speedMul = 0.8; // gentle default for small kids
+try { speedMul = parseFloat(localStorage.getItem('fp_speed')) || 0.8; } catch (e) {}
+$('speed').value = speedMul;
+$('speed').addEventListener('input', e => {
+  speedMul = parseFloat(e.target.value);
+  try { localStorage.setItem('fp_speed', speedMul); } catch (err) {}
+});
+$('gear').addEventListener('click', () => { $('panel').classList.toggle('hidden'); updateAudState(); });
+$('closePanel').addEventListener('click', () => $('panel').classList.add('hidden'));
+
+// ---------- sounds: tiny synthesized WebAudio, no files needed ----------
+// iOS rules, all handled here:
+// - an AudioContext only makes sound after being created/resumed inside a
+//   real user tap, so initAudio() runs in every button/touch handler
+// - starting the camera can flip the context to webkit's 'interrupted'
+//   state (not 'suspended'!), so we resume whenever state !== 'running',
+//   from onstatechange, visibility/pageshow, and any tap on the page
+// - the ringer/silent switch mutes WebAudio while the page is in the
+//   default 'ambient' audio session: we ask for a 'playback' session
+//   (iOS 17+) AND loop a tiny inline silent <audio> (older iOS), which is
+//   what real games do so they play regardless of the switch
+let AC = null, silentEl = null;
+
+// 0.25s of 8-bit mono silence as a WAV data URI — built right here in JS,
+// nothing fetched from the network
+function silentWavURI() {
+  const rate = 8000, n = rate / 4, len = 44 + n;
+  const b = new Uint8Array(len), dv = new DataView(b.buffer);
+  const str = (off, s) => { for (let i = 0; i < s.length; i++) b[off + i] = s.charCodeAt(i); };
+  str(0, 'RIFF'); dv.setUint32(4, len - 8, true); str(8, 'WAVE');
+  str(12, 'fmt '); dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);      // PCM, mono
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate, true); // sample/byte rate
+  dv.setUint16(32, 1, true); dv.setUint16(34, 8, true);       // align, 8-bit
+  str(36, 'data'); dv.setUint32(40, n, true);
+  b.fill(128, 44); // 128 = silence midpoint for 8-bit PCM
+  let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return 'data:audio/wav;base64,' + btoa(s);
+}
+
+// 'playback' beats the ringer switch; once a mic is live (video call) the
+// correct session is 'play-and-record' — both keep game sound audible
+function sessType() {
+  const s = cam.srcObject;
+  return s && s.getAudioTracks().some(t => t.readyState === 'live') ? 'play-and-record' : 'playback';
+}
+
+function initAudio() {
+  try {
+    try { if (navigator.audioSession) navigator.audioSession.type = sessType(); } catch (e) {}
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      AC.onstatechange = () => {
+        if (AC.state !== 'running') { try { AC.resume().catch(() => {}); } catch (e) {} }
+        updateAudState();
+      };
+    }
+    if (AC.state !== 'running') { try { AC.resume().catch(() => {}); } catch (e) {} }
+    if (!silentEl) {
+      silentEl = document.createElement('audio');
+      silentEl.src = silentWavURI();
+      silentEl.loop = true;
+      silentEl.setAttribute('playsinline', '');
+      silentEl.play().catch(() => {});
+    } else if (silentEl.paused) silentEl.play().catch(() => {});
+  } catch (e) {}
+  updateAudState();
+}
+
+// gentle retry from anywhere a gesture or wake-up happens
+function kickAudio() {
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = sessType();
+    if (AC && AC.state !== 'running') AC.resume().catch(() => {});
+    if (silentEl && silentEl.paused) silentEl.play().catch(() => {});
+    // remote call video needs the same gesture-based resume on iOS
+    if (remoteVid && remoteVid.srcObject && remoteVid.paused) remoteVid.play().catch(() => {});
+  } catch (e) {}
+  updateAudState();
+}
+document.addEventListener('pointerdown', kickAudio, { passive: true });
+document.addEventListener('touchstart', kickAudio, { passive: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) kickAudio(); });
+addEventListener('pageshow', kickAudio);
+
+// live audio-state line in the settings panel (debugging on a phone)
+function updateAudState() {
+  const el = $('audState');
+  if (!el || $('panel').classList.contains('hidden')) return;
+  let sess = '';
+  try { if (navigator.audioSession) sess = ' · session: ' + navigator.audioSession.type; } catch (e) {}
+  el.textContent = '🔊 Audio engine: ' + (AC ? AC.state : 'not started — tap Start first') + sess;
+}
+setInterval(updateAudState, 1000);
+function tone(f0, f1, dur, type, vol, delay) {
+  if (!AC) return;
+  const t = AC.currentTime + (delay || 0);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + dur);
+  g.gain.setValueAtTime(vol || .4, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  o.connect(g).connect(AC.destination);
+  o.start(t); o.stop(t + dur + .05);
+}
+function playPop(pitchUp) {
+  if (!AC) return;
+  tone(rand(400, 520) * (pitchUp || 1), 90, .16, 'square', .3);
+  // a short burst of filtered noise = the juicy "splat"
+  const len = Math.floor(AC.sampleRate * .07);
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = .9;
+  const g = AC.createGain(); g.gain.value = .45;
+  src.connect(f); f.connect(g); g.connect(AC.destination);
+  src.start();
+}
+function playCheer() {
+  [523, 659, 784, 1047].forEach((fq, i) => tone(fq, fq, .25, 'triangle', .3, i * .09));
+  tone(1568, 2093, .35, 'sine', .2, .42);
+}
+
+// ---------- game state ----------
+const FRUITS = [
+  { e:'🍉', c:'#ff4f6b' }, { e:'🍊', c:'#ffa334' }, { e:'🍋', c:'#ffe14f' },
+  { e:'🍎', c:'#ff5050' }, { e:'🍇', c:'#b86bff' }, { e:'🍓', c:'#ff5b7f' },
+  { e:'🥝', c:'#9adb4f' }, { e:'🍌', c:'#ffe793' }, { e:'🍑', c:'#ffb38a' },
+  { e:'🍍', c:'#ffd54f' },
+];
+let fruits = [], pieces = [], particles = [];
+let score = 0, running = false, nextSpawn = 0, MAXF = 6;
+
+function fruitSize() { // at least 120px, a bit bigger on large screens
+  return Math.max(120, Math.min(150, Math.min(W, H) * 0.18));
+}
+
+// Launch a fruit from below the screen on a slow, floaty arc.
+// We pick where the arc should peak and how long it should take,
+// then derive launch speed + gravity from those (vy = -2h/T, g = 2h/T²).
+function spawn() {
+  const size = fruitSize(), r = size / 2;
+  const kind = FRUITS[Math.floor(Math.random() * FRUITS.length)];
+  const T = rand(1.9, 2.6) / speedMul;                 // seconds to reach the top of the arc
+  const h = rand(0.45, 0.8) * (H - size);              // how high it floats
+  fruits.push({
+    e: kind.e, c: kind.c, size, r,
+    x: rand(0.15, 0.85) * W, y: H + r,
+    vx: rand(-40, 40), vy: -2 * h / T, g: 2 * h / (T * T),
+    rot: rand(-.4, .4), spin: rand(-1.2, 1.2),
+  });
+  tone(180, 320, .18, 'sine', .07); // quiet "boop" as each fruit floats in
+}
+
+// ---------- slicing: blade trails + collision ----------
+// Every input source gets its own trail: each touching finger, the mouse,
+// and (in M2) each tracked hand. A trail is just the last ~0.3s of points.
+const TRAIL_MS = 280;
+const trails = new Map();
+let hueSeed = 0;
+
+function addTrailPoint(key, x, y) {
+  let tr = trails.get(key);
+  if (!tr) { tr = { pts: [], hue: (hueSeed += 77) % 360 }; trails.set(key, tr); }
+  const prev = tr.pts[tr.pts.length - 1];
+  tr.pts.push({ x, y, t: performance.now() });
+  if (tr.pts.length > 40) tr.pts.shift();
+  if (!running) return;
+  // Hand blades get extra forgiveness: tracking runs at ~15Hz and a waving
+  // arm is not a stylus, so the hit radius is bigger than for touch.
+  const pad = key.startsWith('hand') ? 22 : 8;
+  // Collision is checked on the SEGMENT between the last two points, so a
+  // fast swipe can't tunnel through a fruit between frames...
+  if (prev) checkSlice(prev.x, prev.y, x, y, pad);
+  // ...and also on the newest point alone, so a fruit drifting into a
+  // resting fingertip still pops (perfect for 2-year-olds).
+  pointCheck(x, y, pad + 2);
+}
+
+// Classic point-to-segment distance: project P onto AB, clamp, measure.
+function segPointDist(ax, ay, bx, by, px, py) {
+  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
+}
+function checkSlice(x1, y1, x2, y2, pad) {
+  for (let i = fruits.length - 1; i >= 0; i--) {
+    const f = fruits[i];
+    if (segPointDist(x1, y1, x2, y2, f.x, f.y) < f.r + pad)
+      sliceFruit(i, Math.atan2(y2 - y1, x2 - x1));
+  }
+}
+function pointCheck(x, y, pad) {
+  for (let i = fruits.length - 1; i >= 0; i--) {
+    const f = fruits[i];
+    if (Math.hypot(f.x - x, f.y - y) < f.r + pad) sliceFruit(i, rand(0, Math.PI));
+  }
+}
+
+// combo: quick consecutive slices raise the pop pitch — very satisfying
+let comboN = 0, comboT = 0;
+let onScoreChange = () => {}; // the optional shared room hooks in here
+
+function sliceFruit(i, ang) {
+  const f = fruits[i];
+  fruits.splice(i, 1);
+  score++;
+  const el = $('score');
+  el.textContent = score;
+  el.classList.add('bump');
+  setTimeout(() => el.classList.remove('bump'), 130);
+
+  const now = performance.now();
+  comboN = (now - comboT < 1200) ? comboN + 1 : 0;
+  comboT = now;
+  playPop(Math.pow(1.06, Math.min(comboN, 8)));
+
+  // two emoji halves fly apart perpendicular to the swipe direction
+  for (const dir of [-1, 1]) {
+    const px = Math.cos(ang + Math.PI / 2) * dir, py = Math.sin(ang + Math.PI / 2) * dir;
+    pieces.push({
+      e: f.e, x: f.x, y: f.y, size: f.size, cut: ang, dir, rot: f.rot,
+      vx: f.vx + px * 150 + rand(-30, 30),
+      vy: Math.min(f.vy, 0) * .3 + py * 150 - 60,
+      spin: dir * rand(1.5, 3.5), life: 1,
+    });
+  }
+  juice(f.x, f.y, f.c);
+  if (score % 10 === 0 && !versus) celebrate(); // versus has its own big moments
+  onScoreChange();
+}
+
+function juice(x, y, color) {
+  if (particles.length > 380) particles.splice(0, 60); // hard cap, keeps old iPads smooth
+  particles.push({ type:'ring', x, y, r: 12, color, life: .45, max: .45 });
+  for (let i = 0; i < 16; i++) {
+    const a = rand(0, Math.PI * 2), sp = rand(120, 420);
+    particles.push({ type:'drop', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
+                     r: rand(4, 11), color, life: rand(.5, .9) });
+  }
+}
+
+const PRAISE = ['YAY!', 'WOW!', 'SUPER!', 'GREAT!', 'AMAZING!', 'WOOHOO!'];
+function celebrate() {
+  const b = $('banner');
+  b.textContent = '🎉 ' + PRAISE[(score / 10 - 1) % PRAISE.length] + ' ' + score + ' 🎉';
+  b.classList.add('show');
+  setTimeout(() => b.classList.remove('show'), 1600);
+  playCheer();
+  confettiBurst();
+}
+function confettiBurst() {
+  if (particles.length > 330) particles.splice(0, 110);
+  for (let i = 0; i < 70; i++)
+    particles.push({ type:'conf', x: rand(0, W), y: rand(-80, -10), vx: rand(-60, 60),
+                     vy: rand(90, 230), r: rand(5, 9), hue: rand(0, 360),
+                     rot: rand(0, 6.3), spin: rand(-6, 6), life: rand(1.6, 2.4) });
+}
+
+// ---------- physics + drawing ----------
+function update(dt, now) {
+  // in a versus match, fruit only spawns during YOUR 30-second turn
+  const maySpawn = !versus || versus.playing;
+  if (maySpawn && now > nextSpawn && fruits.length < MAXF) {
+    spawn();
+    nextSpawn = now + rand(1100, 1800) / speedMul;
+  }
+  for (let i = fruits.length - 1; i >= 0; i--) {
+    const f = fruits[i];
+    f.vy += f.g * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.spin * dt;
+    if (f.x < f.r || f.x > W - f.r) f.vx *= -1;          // bounce off side walls
+    if (f.y > H + f.size * 2 && f.vy > 0) fruits.splice(i, 1); // drifted away — no penalty
+  }
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    const p = pieces[i];
+    p.vy += 900 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    p.rot += p.spin * dt; p.life -= dt * .9;
+    if (p.life <= 0 || p.y > H + 300) pieces.splice(i, 1);
+  }
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.type === 'drop') { p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    else if (p.type === 'conf') { p.vy += 140 * dt; p.x += (p.vx + Math.sin(p.life * 5) * 40) * dt; p.y += p.vy * dt; p.rot += p.spin * dt; }
+    else if (p.type === 'ring') p.r += 320 * dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawEmoji(e, size) {
+  ctx.font = size + 'px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(e, 0, 0);
+}
+
+function draw(now) {
+  ctx.clearRect(0, 0, W, H); // transparent canvas — camera video shows through
+
+  for (const f of fruits) {
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
+    drawEmoji(f.e, f.size);
+    ctx.restore();
+  }
+
+  // sliced halves: clip to one side of the cut line, then draw the emoji
+  for (const p of pieces) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.cut); // local x-axis now lies along the cut
+    ctx.beginPath();
+    ctx.rect(-p.size, p.dir < 0 ? -p.size : 0, p.size * 2, p.size);
+    ctx.clip();
+    ctx.rotate(p.rot - p.cut);
+    drawEmoji(p.e, p.size);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+
+  for (const p of particles) {
+    if (p.type === 'drop') {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / .6));
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+    } else if (p.type === 'conf') {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+      ctx.fillStyle = 'hsl(' + p.hue + ',95%,60%)';
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillRect(-p.r, -p.r * .6, p.r * 2, p.r * 1.2); ctx.restore();
+    } else { // expanding pop ring
+      ctx.globalAlpha = Math.max(0, p.life / p.max) * .8;
+      ctx.strokeStyle = p.color; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // blade trails: three strokes (wide glow, bright core, white center)
+  for (const [k, tr] of trails) {
+    tr.pts = tr.pts.filter(p => now - p.t < TRAIL_MS);
+    if (tr.pts.length < 2) { if (!tr.pts.length) trails.delete(k); continue; }
+    const hue = (tr.hue + now * .06) % 360;
+    ctx.lineCap = ctx.lineJoin = 'round';
+    for (const [wd, col] of [[26, 'hsla(' + hue + ',90%,60%,.3)'],
+                             [11, 'hsl(' + hue + ',95%,65%)'],
+                             [4, 'rgba(255,255,255,.9)']]) {
+      ctx.lineWidth = wd; ctx.strokeStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
+      for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i].x, tr.pts[i].y);
+      ctx.stroke();
+    }
+  }
+
+  // glowing fingertip markers — kids instantly see "that dot is my hand",
+  // even when the hand is holding still and there's no trail to look at
+  for (const [key, s] of handSmooth) {
+    const tr = trails.get(key);
+    const hue = tr ? (tr.hue + now * .06) % 360 : 140;
+    const pulse = 1 + Math.sin(now / 140) * .12;
+    ctx.globalAlpha = .35;
+    ctx.fillStyle = 'hsl(' + hue + ',95%,65%)';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 34 * pulse, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'hsl(' + hue + ',95%,70%)';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 22 * pulse, 0, 7); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 7); ctx.fill();
+  }
+}
+
+// auto-quality: if fps sags on a weak device, render at lower resolution
+let frames = 0, fpsT = performance.now(), qSteps = 0;
+function perfGuard(now) {
+  frames++;
+  if (now - fpsT < 2000) return;
+  const fps = frames * 1000 / (now - fpsT);
+  frames = 0; fpsT = now;
+  if (fps < 24 && qSteps < 2) { qSteps++; quality *= .78; resize(); }
+  else if (fps < 20) MAXF = 4;
+}
+
+let last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - last) / 1000, .05);
+  last = now;
+  if (running) { update(dt, now); detectHands(now); versusTick(now); }
+  draw(now);
+  updatePill(now);
+  perfGuard(now);
+}
+requestAnimationFrame(loop);
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
+
+// ---------- touch & mouse input (always on — works alongside hands) ----------
+canvas.addEventListener('pointerdown', e => {
+  initAudio();
+  addTrailPoint('p' + e.pointerId, e.clientX, e.clientY);
+});
+canvas.addEventListener('pointermove', e => {
+  // touches only report moves while touching; mouse slices just by moving
+  addTrailPoint('p' + e.pointerId, e.clientX, e.clientY);
+});
+// block iOS double-tap zoom / long-press magnifier
+canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- chip = friendly status message ----------
+let chipTimer = 0;
+function showChip(msg, ms) {
+  const c = $('chip');
+  c.textContent = msg;
+  c.style.opacity = 1;
+  clearTimeout(chipTimer);
+  chipTimer = setTimeout(() => c.style.opacity = 0, ms || 3000);
+}
+
+/* =====================================================================
+   📷 CAMERA + ✋ HAND TRACKING (Milestone 2)
+
+   The game never waits for any of this: it is already playable by touch.
+   Ladder of fallbacks, friendliest message at each rung:
+     camera denied/missing  -> play on, pretty gradient background
+     MediaPipe fails to load -> play on, camera as background, touch slices
+     tracking too slow       -> switch itself off, touch slices
+   ===================================================================== */
+const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_CDN   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const MODEL_URL  = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+let camOn = false, handsOK = false, landmarker = null, handsStatus = 'off';
+
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showChip('Camera needs a secure (https) page — touch to slice! 👆', 6000);
+    return false;
+  }
+  try {
+    // 640x480 is plenty for hand tracking and easy on a mid-tier iPad GPU.
+    // The mic is asked for too, so a video call can carry voice — declining
+    // it (or having none) quietly falls back to camera-only.
+    const vc = { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: vc,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e1) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: false });
+    }
+    cam.srcObject = stream;
+    try { await cam.play(); } catch (e) {} // muted+playsinline video autoplays anyway
+    cam.style.display = 'block';
+    camOn = true;
+    initAudio(); // iOS can flip the AudioContext to 'interrupted' when the camera attaches
+    return true;
+  } catch (err) {
+    showChip(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
+      ? "That's OK — camera is off! Swipe with your finger to slice 🍉"
+      : 'No camera found — touch to slice! 👆', 6000);
+    return false;
+  }
+}
+
+const withTimeout = (p, ms) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+let visionMod = null, visionFiles = null, currentDelegate = '', loadRetried = false;
+
+function makeLandmarker(delegate) {
+  return withTimeout(visionMod.HandLandmarker.createFromOptions(visionFiles, {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: 'VIDEO',
+    numHands: 2, // two hands = two blades (or one hand each for two kids)
+  }), 25000);
+}
+
+async function startHands() {
+  handsStatus = 'loading';
+  showChip('✨ Loading hand magic… you can slice by touch meanwhile!', 30000);
+  try {
+    if (!visionMod) visionMod = await withTimeout(import(VISION_CDN), 20000);
+    if (!visionFiles) visionFiles = await withTimeout(visionMod.FilesetResolver.forVisionTasks(WASM_CDN), 20000);
+    for (const delegate of ['GPU', 'CPU']) { // try the fast path first, then plain wasm
+      try { landmarker = await makeLandmarker(delegate); currentDelegate = delegate; break; }
+      catch (e) { landmarker = null; }
+    }
+    if (!landmarker) throw new Error('no delegate worked');
+    handsOK = true; handsStatus = 'on';
+    detFails = 0;
+    lastHandSeen = performance.now(); // start the "show me your hand" clock now
+    showChip('✋ Wave your hand to slice!', 4000);
+  } catch (e) {
+    if (!loadRetried) { // flaky wifi on first visit: one more attempt in 5s
+      loadRetried = true;
+      showChip('Hand magic is taking a moment — retrying… touch works meanwhile! 👆', 6000);
+      setTimeout(startHands, 5000);
+    } else {
+      handsStatus = 'failed';
+      showChip('Hand tracking unavailable — touch to slice! 👆', 5000);
+    }
+  }
+}
+function disableHands(msg) { handsOK = false; handsStatus = 'failed'; showChip(msg, 5000); }
+
+// If the GPU path misbehaves at runtime, rebuild the tracker on plain CPU
+// wasm once before giving up — slower, but far more compatible.
+let rebuilding = false;
+async function rebuildOnCPU(reason) {
+  if (rebuilding) return;
+  rebuilding = true;
+  handsOK = false; handsStatus = 'loading';
+  showChip(reason + ' — switching to compatible mode…', 5000);
+  try {
+    try { if (landmarker && landmarker.close) landmarker.close(); } catch (e) {}
+    landmarker = await makeLandmarker('CPU');
+    currentDelegate = 'CPU';
+    detFails = 0; detTimes = []; detEvery = 100; // CPU is slower; pace gently
+    handsOK = true; handsStatus = 'on';
+    lastHandSeen = performance.now();
+    showChip('✋ Hand tracking is back — wave away!', 3500);
+  } catch (e) {
+    disableHands('Hand tracking unavailable — touch to slice! 👆');
+  }
+  rebuilding = false;
+}
+
+// The camera frame and the screen rarely share an aspect ratio. The video is
+// drawn with CSS object-fit:cover (fill the screen, crop the overflow), so we
+// reproduce that math to map a normalized landmark (0..1 in the camera frame)
+// onto screen pixels. X is also flipped because the video is mirrored.
+function videoToScreen(nx, ny) {
+  const vw = cam.videoWidth || 640, vh = cam.videoHeight || 480;
+  const s = Math.max(W / vw, H / vh);
+  const dw = vw * s, dh = vh * s, ox = (W - dw) / 2, oy = (H - dh) / 2;
+  return { x: (1 - nx) * dw + ox, y: ny * dh + oy };
+}
+
+// Detection runs at ~15Hz (not every frame) to keep iPads at full speed; the
+// blade glides toward the newest fingertip position every frame, so trails
+// stay silky even between detections. If detection is slow we first halve
+// its rate, and only then give up and switch to touch.
+let detEvery = 66, lastDet = 0, detTimes = [], handTargets = [];
+let detFails = 0, lastHandSeen = 0;
+const handSmooth = new Map();
+let fedFrames = []; // test inlet: synthetic detection results ride the real pipeline
+
+function detectHands(now) {
+  if (!handsOK || rebuilding) return;
+  // while watching the other player's versus turn there's nothing to slice —
+  // skip detection and give the CPU to the live video instead
+  if (versus && !versus.playing && !versus.counting) return;
+  if (!fedFrames.length && cam.readyState < 2) return;
+  if (now - lastDet >= detEvery) {
+    lastDet = now;
+    let res;
+    if (fedFrames.length) {
+      res = fedFrames.shift(); // same mapping/smoothing/collision path as real frames
+    } else {
+      const t0 = performance.now();
+      try { res = landmarker.detectForVideo(cam, now); detFails = 0; }
+      catch (e) {
+        // one bad frame must not kill tracking: skip, retry, rebuild, only then give up
+        detFails++;
+        if (detFails < 3) return;
+        if (currentDelegate === 'GPU') rebuildOnCPU('Hand tracking hiccup');
+        else disableHands('Hand tracking hiccup — touch to slice! 👆');
+        return;
+      }
+      detTimes.push(performance.now() - t0);
+      if (detTimes.length >= 30) {
+        const avg = detTimes.reduce((a, b) => a + b, 0) / detTimes.length;
+        detTimes = [];
+        if (avg > 140) {
+          if (currentDelegate === 'GPU') rebuildOnCPU('Hand tracking is slow here');
+          else disableHands('This device prefers touch — swipe away! 👆');
+          return;
+        }
+        if (avg > 70) detEvery = 120;
+      }
+    }
+    const used = {};
+    handTargets = (res.landmarks || []).map((lms, i) => {
+      // landmark 8 = tip of the index finger
+      const p = videoToScreen(lms[8].x, lms[8].y);
+      let key = res.handednesses && res.handednesses[i] && res.handednesses[i][0]
+        ? res.handednesses[i][0].categoryName : 'H' + i;
+      if (used[key]) key += i; // two kids can both show a "Right" hand
+      used[key] = 1;
+      return { key: 'hand' + key, x: p.x, y: p.y };
+    });
+    if (handTargets.length) lastHandSeen = now; // feeds the status pill
+  }
+  for (const t of handTargets) {
+    let s = handSmooth.get(t.key);
+    if (!s) { s = { x: t.x, y: t.y }; handSmooth.set(t.key, s); }
+    s.x += (t.x - s.x) * .45;
+    s.y += (t.y - s.y) * .45;
+    s.seen = now;
+    addTrailPoint(t.key, s.x, s.y);
+  }
+  for (const [k, s] of handSmooth) if (now - s.seen > 400) handSmooth.delete(k);
+}
+
+// ---------- live status pill + "I can't see your hand" hint ----------
+// Three states while the camera is on: green (hand in view right now),
+// yellow (tracking fine, hand out of view), gray (tracking off → touch).
+// This is the single biggest fix for "it feels broken": the game now SAYS
+// whether it can see a hand instead of leaving everyone guessing.
+let pillState = '', hintAt = 0;
+function updatePill(now) {
+  const pill = $('pill');
+  if (!running || !camOn || (versus && !versus.playing && !versus.counting)) {
+    if (pillState) { pillState = ''; pill.className = 'hidden'; }
+    return; // hidden off-camera and while watching the other player's turn
+  }
+  let cls, txt;
+  if (handsStatus === 'loading') { cls = 'p-gray'; txt = '✨ Hand magic loading…'; }
+  else if (handsStatus !== 'on') { cls = 'p-gray'; txt = '👆 Touch mode'; }
+  else if (now - lastHandSeen < 1000) { cls = 'p-green'; txt = '✋ I see your hand!'; }
+  else { cls = 'p-yellow'; txt = '👋 Show me your hand'; }
+  if (cls + txt !== pillState) {
+    pillState = cls + txt;
+    pill.className = cls;
+    pill.textContent = txt;
+  }
+  // long spell with no hand in frame → say what to actually do about it
+  if (handsStatus === 'on' && now - lastHandSeen > 10000 && now - hintAt > 20000) {
+    hintAt = now;
+    const h = $('hint');
+    h.textContent = '👋 Step back so the camera can see your hand!';
+    h.classList.add('show');
+    setTimeout(() => h.classList.remove('show'), 4500);
+  }
+}
+
+// ---------- start ----------
+function startGame() {
+  if (running) return;
+  $('start').classList.add('hidden');
+  $('gear').style.display = 'block';
+  running = true;
+  spawn();
+  nextSpawn = performance.now() + 700;
+  showChip('Slice the fruit! 🍉', 2500);
+  try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+}
+$('btnTouch').addEventListener('click', () => { initAudio(); startGame(); });
+$('btnCam').addEventListener('click', async () => {
+  initAudio();
+  startGame(); // playable immediately — camera and tracking attach when ready
+  if (await startCamera()) startHands();
+});
+
+/* =====================================================================
+   👨‍👧 OPTIONAL: PLAY TOGETHER — live scoreboard (Milestone 4)
+
+   Both devices type the same room code and see each other's name and
+   score. It rides on free public MQTT relays over secure WebSockets:
+   no account, no server, no API keys. Only what you see below is ever
+   sent: room code, a nickname, and the score. Use nicknames, and pick
+   a unique silly room code (strangers on the same code would see it).
+
+   The single-player game NEVER depends on this. The mqtt library is
+   only fetched when someone taps Join, and every failure just shows a
+   friendly status and leaves the game untouched.
+   Set ROOM_ENABLED = false to hide the feature completely.
+   ===================================================================== */
+const ROOM_ENABLED = true;
+const MQTT_CDN = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
+const BROKERS = [ // tried in order until one connects
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://test.mosquitto.org:8081',
+];
+// a stable id lets a player reload mid-match and pick up where they left off
+let myId = '';
+try { myId = localStorage.getItem('fp_id') || ''; } catch (e) {}
+if (!myId) {
+  myId = Math.random().toString(36).slice(2, 8);
+  try { localStorage.setItem('fp_id', myId); } catch (e) {}
+}
+let room = null;
+
+const esc = s => String(s).slice(0, 16).replace(/[&<>"']/g,
+  ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+
+function setRoomStatus(msg) { $('roomStatus').textContent = msg; }
+
+function renderBoard() {
+  const b = $('board');
+  updateVsBtn();
+  scheduleCallCheck(); // membership changed — (re)evaluate who we video-call
+  if (!room || versus) { b.innerHTML = ''; return; } // versus draws its own UI
+  let html = '<div class="prow me">' + esc(room.name) + ' <b>' + score + '</b></div>';
+  for (const [pid, d] of room.peers)
+    if (pid !== room.id) html += '<div class="prow">' + esc(d.n || '?') + ' <b>' + (d.s | 0) + '</b></div>';
+  b.innerHTML = html;
+}
+
+function roomPublish() {
+  try {
+    if (room && room.client.connected)
+      room.client.publish(room.topic + room.id,
+        // j = when this player first joined: video pairs the two oldest seats
+        JSON.stringify({ n: room.name, s: score, t: Date.now(), j: myJoinStamp }), { retain: true });
+  } catch (e) {}
+}
+
+let lastPub = 0;
+onScoreChange = () => {
+  if (!room) return;
+  if (versus && versus.playing) { // a slice during my versus turn
+    versus.turnScore++;
+    versus.ts[versus.myIdx] = versus.turnScore;
+    if (Date.now() - lastVPub > 500) { lastVPub = Date.now(); vPublish(); }
+    renderVersus();
+  }
+  renderBoard(); // own row updates instantly
+  const n = Date.now();
+  if (n - lastPub > 600) { lastPub = n; roomPublish(); } // heartbeat covers the rest
+};
+
+function connectBroker(url, code, name) {
+  return new Promise((ok, bad) => {
+    const topic = 'fruitparty1/' + code + '/';
+    const client = mqtt.connect(url, {
+      connectTimeout: 6000, reconnectPeriod: 2000, clean: true,
+      // last-will: if we vanish, the relay clears our retained score
+      will: { topic: topic + myId, payload: '', retain: true },
+    });
+    let inited = false;
+    const fail = setTimeout(() => { if (!inited) { try { client.end(true); } catch (e) {} bad(new Error('timeout')); } }, 8000);
+    client.on('connect', () => {
+      if (inited) return; // reconnects land here too
+      inited = true;
+      clearTimeout(fail);
+      room = { client, code, id: myId, name, topic, peers: new Map() };
+      client.subscribe(topic + '+');
+      roomPublish();
+      room.hb = setInterval(() => {                         // keep-alive + score refresh
+        if (!room) return;
+        if (room.client.connected) roomPublish();
+        else if (!room.client.reconnecting) reJoin();       // see note on reJoin
+      }, 4000);
+      room.prune = setInterval(() => {                      // drop silent players
+        if (!room) return;
+        let changed = false;
+        for (const [pid, d] of room.peers)
+          if (Date.now() - (d.rx || 0) > 15000) { room.peers.delete(pid); changed = true; }
+        if (changed) renderBoard();
+      }, 5000);
+      renderBoard();
+      ok();
+    });
+    client.on('message', (t, msg) => {
+      if (!room) return;
+      const pid = t.split('/').pop();
+      if (pid === '_versus') { onVersusMsg(msg); return; }
+      if (pid === '_rtc') { onRtcMsg(msg); return; }
+      if (pid === room.id) return;
+      if (!msg || !msg.length) { room.peers.delete(pid); renderBoard(); return; }
+      try {
+        const d = JSON.parse(msg.toString());
+        d.rx = Date.now(); // stamp arrival by OUR clock — sender clocks can be off
+        room.peers.set(pid, d);
+        renderBoard();
+      } catch (e) {}
+    });
+    client.on('error', () => { if (!inited) { clearTimeout(fail); try { client.end(true); } catch (e) {} bad(new Error('connect error')); } });
+  });
+}
+
+// Random three-word room codes: with live video involved, a guessable code
+// matters — 16x16x90 combos beats kids typing "ABC" on both ends.
+const CODE_W1 = ['banana', 'mango', 'cherry', 'grape', 'peach', 'kiwi', 'apple', 'berry',
+                 'melon', 'lemon', 'plum', 'coco', 'star', 'sunny', 'bubble', 'candy'];
+const CODE_W2 = ['rocket', 'panda', 'tiger', 'dragon', 'unicorn', 'robot', 'pirate', 'ninja',
+                 'wizard', 'koala', 'monkey', 'dino', 'puppy', 'kitten', 'frog', 'bunny'];
+function makeCode() {
+  return CODE_W1[Math.floor(Math.random() * CODE_W1.length)] + '-' +
+         CODE_W2[Math.floor(Math.random() * CODE_W2.length)] + '-' +
+         Math.floor(rand(10, 100));
+}
+$('genCode').textContent = makeCode();
+$('newCode').addEventListener('click', () => { $('genCode').textContent = makeCode(); });
+
+async function joinRoom() {
+  const name = ($('pname').value.trim() || 'Player').slice(0, 12);
+  const code = ($('pcode').value.trim() || $('genCode').textContent)
+    .toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+  if (!code) { setRoomStatus('Tap ↻ for a code, or type one 🍌'); return; }
+  try { localStorage.setItem('fp_name', name); localStorage.setItem('fp_code', code); } catch (e) {}
+  myJoinStamp = Date.now(); // my seat number for video pairing
+  warnedFull = false;
+  $('joinBtn').disabled = true;
+  setRoomStatus('Connecting…');
+  if (!window.mqtt) { // fetch the library only now, never on page load
+    await new Promise(res => {
+      const s = document.createElement('script');
+      s.src = MQTT_CDN; s.onload = res; s.onerror = res;
+      setTimeout(res, 12000);
+      document.head.appendChild(s);
+    });
+  }
+  if (window.mqtt) {
+    for (const url of BROKERS) {
+      try {
+        await connectBroker(url, code, name);
+        setRoomStatus('In room ' + code + ' — scores are live! ✔');
+        $('joinBtn').textContent = '🚪 Leave room';
+        $('joinBtn').disabled = false;
+        return;
+      } catch (e) { /* try the next relay */ }
+    }
+  }
+  setRoomStatus('Room service unreachable right now — solo is just as fun! 🍉');
+  $('joinBtn').disabled = false;
+}
+
+// Public relays sometimes kick a client with a CLEAN disconnect, which stops
+// mqtt.js's auto-reconnect for good — the room would die silently. The
+// heartbeat notices the dead client and quietly rebuilds the connection.
+let healing = false;
+async function reJoin() {
+  if (!room || healing) return;
+  healing = true;
+  setRoomStatus('Reconnecting…');
+  const name = room.name, code = room.code;
+  try { clearInterval(room.hb); clearInterval(room.prune); room.client.end(true); } catch (e) {}
+  room = null;
+  for (const url of BROKERS) {
+    try {
+      await connectBroker(url, code, name);
+      setRoomStatus('In room ' + code + ' — scores are live! ✔');
+      renderBoard();
+      healing = false;
+      return;
+    } catch (e) { /* next relay */ }
+  }
+  healing = false;
+  setRoomStatus('Lost the room connection — playing solo 🍉');
+  $('joinBtn').textContent = '🔗 Join room';
+  if (versus) exitVersus(false);
+  renderBoard();
+}
+
+function leaveRoom() {
+  if (!room) return;
+  if (versus) exitVersus(true); // walk out of the match too
+  endCall(null, true);          // close the peer connection: nothing transmits anymore
+  const ms = cam.srcObject;     // release the mic entirely — it existed for the call
+  if (ms) ms.getAudioTracks().forEach(tr => { tr.stop(); ms.removeTrack(tr); });
+  myJoinStamp = null; warnedFull = false;
+  clearInterval(room.hb); clearInterval(room.prune);
+  try {
+    room.client.publish(room.topic + room.id, '', { retain: true });
+    room.client.end(true);
+  } catch (e) {}
+  room = null;
+  renderBoard();
+  setRoomStatus('');
+  $('joinBtn').textContent = '🔗 Join room';
+}
+
+if (ROOM_ENABLED) {
+  try {
+    $('pname').value = localStorage.getItem('fp_name') || '';
+    $('pcode').value = localStorage.getItem('fp_code') || '';
+  } catch (e) {}
+  $('joinBtn').addEventListener('click', () => room ? leaveRoom() : joinRoom());
+} else {
+  $('roomSec').style.display = 'none';
+}
+
+/* =====================================================================
+   ⚔️ VERSUS — turn-based two-player riding the same room (Milestone 2)
+
+   One parent taps "Versus" on one device; the other device joins in with
+   ZERO clicks. Players alternate 30s turns (the watcher sees the active
+   player's live score in giant text), 3 rounds, a star per round win,
+   most stars takes the match — and both screens celebrate at the end.
+
+   Protocol: one retained JSON blob on <room>/_versus (~200 bytes). Each
+   device is authoritative ONLY while it acts (its own countdown + turn),
+   so no clock sync is needed and 1-2s of relay latency is harmless.
+   Messages carry a sequence number; stale ones are dropped, simultaneous
+   starts tie-break on player id. If the active player vanishes, the
+   other side shows "waiting for <name>" (their round restarts when they
+   come back) and gives up kindly after a minute. None of this runs —
+   or can break anything — outside an explicitly started match.
+   ===================================================================== */
+let TURN_MS = 30000, COUNT_MS = 3000, BETWEEN_MS = 3500, OVER_MS = 6000,
+    STALE_MS = 12000, CANCEL_MS = 60000; // mutable so tests can shrink them
+let versus = null, vSeq = 0, vBy = '', lastVPub = 0;
+
+function bannerShow(txt, ms) {
+  const b = $('banner');
+  b.textContent = txt;
+  b.classList.add('show');
+  clearTimeout(bannerShow.t);
+  bannerShow.t = setTimeout(() => b.classList.remove('show'), ms);
+}
+
+function vPublish() {
+  if (!room || !versus) return;
+  vSeq++; vBy = myId;
+  const m = { v: 1, seq: vSeq, by: myId, st: versus.st, a: versus.a, r: versus.r,
+              w: versus.w, p: versus.p, ts: versus.ts, fin: versus.fin,
+              lw: versus.lw, lr: versus.lr, te: versus.st === 'over' ? Date.now() : 0 };
+  try { room.client.publish(room.topic + '_versus', JSON.stringify(m), { retain: true }); } catch (e) {}
+}
+
+function onVersusMsg(msg) {
+  if (!msg || !msg.length) { if (versus) exitVersus(false); return; } // match cleared
+  let d; try { d = JSON.parse(msg.toString()); } catch (e) { return; }
+  if (!d || d.v !== 1 || !Array.isArray(d.p) || d.p.length !== 2) return;
+  if (d.by === myId) { vSeq = Math.max(vSeq, d.seq); return; } // own echo
+  if (d.seq < vSeq) return;                                    // stale
+  if (d.seq === vSeq && !(d.by !== vBy && d.by < vBy)) return; // dup, or lost tie-break
+  if (d.st === 'over' && Date.now() - (d.te || 0) > 30000) return; // crusty old match
+  vSeq = d.seq; vBy = d.by;
+  applyVersus(d);
+}
+
+// a state someone else published becomes our local truth
+function applyVersus(d) {
+  const myIdx = d.p.findIndex(pl => pl.id === myId);
+  versus = { st: d.st, a: d.a, r: d.r, w: d.w, p: d.p, ts: d.ts || [null, null],
+             fin: d.fin, lw: d.lw, lr: d.lr, myIdx, turnScore: 0, waitSince: 0 };
+  $('panel').classList.add('hidden');
+  if (d.st === 'over') { showOver(); return; }
+  if (myIdx >= 0 && (d.st === 'count' || d.st === 'play') && d.a === myIdx) {
+    // my turn — also lands here when I reload mid-turn: the round restarts
+    startMyCountdown();
+  } else if (myIdx >= 0 && d.st === 'between' && d.a === myIdx) {
+    // round result is on screen; after the pause it's me again
+    setTimeout(() => {
+      if (versus && versus.st === 'between' && !versus.counting) startMyCountdown();
+    }, BETWEEN_MS);
+  }
+  renderVersus();
+  renderBoard();
+}
+
+function startMyCountdown() {
+  if (!versus || versus.counting || versus.playing) return;
+  versus.counting = true;
+  versus.st = 'count'; versus.a = versus.myIdx;
+  if (!versus.ts) versus.ts = [null, null];
+  vPublish();
+  renderVersus();
+  bannerShow('YOUR TURN, ' + versus.p[versus.myIdx].n + '! 🫵', 1100);
+  const step = Math.max(400, Math.floor(COUNT_MS / 3));
+  [3, 2, 1].forEach((d, i) => setTimeout(() => {
+    if (!versus || !versus.counting) return; // match changed under us
+    bannerShow(String(d), step * .8);
+    tone(440 + d * 70, 440 + d * 70, .12, 'square', .3);
+  }, 900 + i * step));
+  setTimeout(() => { if (versus && versus.counting) startMyTurn(); }, 900 + step * 3);
+}
+
+function startMyTurn() {
+  versus.counting = false; versus.playing = true;
+  versus.st = 'play'; versus.turnScore = 0;
+  versus.ts[versus.myIdx] = 0;
+  versus.turnEndAt = performance.now() + TURN_MS;
+  vPublish();
+  bannerShow('GO! 🍉', 900);
+  tone(660, 1320, .25, 'triangle', .4);
+  renderVersus();
+}
+
+function endMyTurn() {
+  if (!versus || !versus.playing) return;
+  versus.playing = false;
+  versus.ts[versus.myIdx] = versus.turnScore || 0;
+  tone(700, 240, .4, 'triangle', .35);
+  const other = 1 - versus.myIdx;
+  if (versus.ts[other] == null) {
+    // other player still owes a turn this round — hand them the controls
+    versus.st = 'count'; versus.a = other;
+    vPublish();
+    renderVersus();
+  } else {
+    // round complete: hand out a star (a tie gives one to each — toddlers)
+    versus.lr = versus.r;
+    versus.lw = versus.ts[0] === versus.ts[1] ? -1 : (versus.ts[0] > versus.ts[1] ? 0 : 1);
+    if (versus.lw === -1) { versus.w[0]++; versus.w[1]++; } else versus.w[versus.lw]++;
+    if (versus.r >= 3) {
+      versus.st = 'over'; versus.a = -1;
+      versus.fin = versus.w[0] === versus.w[1] ? -1 : (versus.w[0] > versus.w[1] ? 0 : 1);
+      vPublish();
+      showOver();
+    } else {
+      versus.r++; versus.ts = [null, null];
+      versus.st = 'between'; versus.a = 0; // challenger opens every round
+      vPublish();
+      renderVersus();
+      if (versus.myIdx === 0) setTimeout(() => {
+        if (versus && versus.st === 'between' && !versus.counting) startMyCountdown();
+      }, BETWEEN_MS);
+    }
+  }
+}
+
+function showOver() {
+  const f = versus.fin;
+  const mine = f === versus.myIdx;
+  bannerShow(f === -1 ? '🏆 You BOTH win! 🏆'
+    : mine ? '🏆 ' + versus.p[f].n + ' wins! 🏆'
+           : '🌟 Great game! ' + versus.p[f].n + ' wins 🌟', OVER_MS - 500);
+  playCheer(); setTimeout(playCheer, 700);
+  for (let k = 0; k < 3; k++) setTimeout(confettiBurst, k * 800);
+  renderVersus();
+  setTimeout(() => { if (versus && versus.st === 'over') exitVersus(versus.myIdx === 0); }, OVER_MS);
+}
+
+function exitVersus(clearRetained) {
+  if (clearRetained && room) {
+    try { room.client.publish(room.topic + '_versus', '', { retain: true }); } catch (e) {}
+  }
+  versus = null;
+  $('vov').classList.add('hidden');
+  $('tbar').style.display = 'none';
+  const s = $('score'); s.style.display = ''; s.textContent = score;
+  renderBoard();
+  layoutVideos(); // partner returns to the corner PiP
+}
+
+function cancelVersus() {
+  bannerShow("We'll play again soon! 💛", 3000);
+  exitVersus(true);
+}
+
+// runs every frame from the main loop; inert unless a match is active
+function versusTick(now) {
+  if (!versus) return;
+  if (versus.playing) {
+    const left = versus.turnEndAt - now;
+    $('tbar').style.width = Math.max(0, left / TURN_MS * 100) + '%';
+    if (Date.now() - lastVPub > 2000) { lastVPub = Date.now(); vPublish(); } // live score for the watcher
+    if (left <= 0) endMyTurn();
+    return;
+  }
+  if (versus.counting || versus.st === 'over') return;
+  // someone else should be acting — are they still with us?
+  const actor = versus.p[versus.a];
+  if (!actor || actor.id === myId) return;
+  const pr = room && room.peers.get(actor.id);
+  const fresh = pr && Date.now() - (pr.rx || 0) < STALE_MS;
+  if (!fresh) {
+    if (!versus.waitSince) { versus.waitSince = now; renderVersus(); }
+    else if (now - versus.waitSince > CANCEL_MS) {
+      versus.myIdx >= 0 ? cancelVersus() : exitVersus(false);
+    }
+  } else if (versus.waitSince) {
+    versus.waitSince = 0;
+    renderVersus(); // they're back — their device re-reads the match and resumes
+  }
+}
+
+function renderVersus() {
+  if (!versus) return;
+  const vov = $('vov');
+  if (versus.playing) { // my turn: top number = THIS turn's score, bar = time left
+    $('score').style.display = '';
+    $('score').textContent = versus.turnScore;
+    $('tbar').style.display = 'block';
+    vov.classList.add('hidden');
+    return;
+  }
+  $('tbar').style.display = 'none';
+  $('score').style.display = 'none';
+  if (versus.counting) { vov.classList.add('hidden'); return; } // banner digits own the screen
+  const stars = i => '⭐'.repeat(versus.w[i]) || '—';
+  let t1 = '', t2 = '';
+  if (versus.waitSince) {
+    t1 = '💤 Waiting for ' + versus.p[versus.a].n + '…'; t2 = '';
+  } else if (versus.st === 'count') {
+    t1 = 'Get ready — ' + versus.p[versus.a].n + "'s turn!"; t2 = '✨';
+  } else if (versus.st === 'play') {
+    t1 = '👀 ' + versus.p[versus.a].n + "'s turn!";
+    t2 = String((versus.ts && versus.ts[versus.a]) || 0);
+  } else if (versus.st === 'between') {
+    t1 = versus.lw === -1 ? 'Round ' + versus.lr + ' is a tie!'
+                          : versus.p[versus.lw].n + ' wins round ' + versus.lr + '!';
+    t2 = '⭐';
+  } else if (versus.st === 'over') {
+    t1 = versus.fin === -1 ? 'You BOTH win!' : versus.p[versus.fin].n + ' wins!';
+    t2 = '🏆';
+  }
+  vov.querySelector('.v1').textContent = t1;
+  vov.querySelector('.v2').textContent = t2;
+  vov.querySelector('.v3').textContent = 'Round ' + Math.min(versus.r, 3) + ' of 3 — ' +
+    versus.p[0].n + ' ' + stars(0) + '  •  ' + versus.p[1].n + ' ' + stars(1);
+  vov.classList.remove('hidden');
+}
+// every versus state change can flip who's big on screen
+const renderVersusBase = renderVersus;
+renderVersus = function () { renderVersusBase(); layoutVideos(); };
+
+function updateVsBtn() {
+  $('vsBtn').classList.toggle('hidden', !(room && !versus && room.peers.size >= 1));
+}
+
+$('vsBtn').addEventListener('click', () => {
+  if (!room || versus) return;
+  const other = [...room.peers.entries()].find(([pid]) => pid !== room.id);
+  if (!other) return;
+  versus = { st: 'idle', a: 0, r: 1, w: [0, 0], ts: [null, null], fin: null,
+             p: [{ id: myId, n: room.name }, { id: other[0], n: (other[1].n || 'Friend').slice(0, 12) }],
+             myIdx: 0, turnScore: 0, waitSince: 0 };
+  $('panel').classList.add('hidden');
+  startMyCountdown(); // publishes; the other device joins with zero clicks
+});
+
+/* =====================================================================
+   🎥 LIVE VIDEO — WebRTC, peer-to-peer, between the two room members.
+
+   The MQTT relay carries ONLY tiny signaling JSON (offers, answers, ICE
+   candidates, ~1-4KB total) on the room's _rtc subtopic. The video and
+   voice themselves go directly device-to-device, end-to-end encrypted by
+   WebRTC itself — they never touch any server.
+
+   Both sides simply create a connection when they see each other and the
+   "perfect negotiation" pattern resolves any collision: the peer with the
+   greater id plays the polite role and rolls back when offers cross.
+   ===================================================================== */
+const RTC_CFG = { iceServers: [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  // TURN fallback slot — add one here only if both homes have strict NATs:
+  // { urls: 'turn:YOUR-TURN-HOST:3478', username: 'user', credential: 'pass' },
+  // (The old free "Open Relay" public TURN was probed 2026-06-11: dead,
+  //  zero relay candidates — deliberately not included.)
+] };
+let VIDEO_FAIL_MS = 20000; // mutable so tests can shrink it
+const mySess = Math.random().toString(36).slice(2, 8); // fresh per page load
+const remoteVid = $('remoteVid');
+let call = null, videoBlocked = false, warnedFull = false, micMuted = false;
+let myJoinStamp = null, callCheckT = 0, lastRebuild = 0;
+
+function rtcSend(to, m) {
+  if (!room) return;
+  try {
+    room.client.publish(room.topic + '_rtc',
+      JSON.stringify(Object.assign({ v: 1, from: myId, to, sess: mySess }, m)));
+  } catch (e) {}
+}
+
+function onRtcMsg(msg) {
+  if (!msg || !msg.length) return;
+  let d; try { d = JSON.parse(msg.toString()); } catch (e) { return; }
+  if (!d || d.v !== 1 || d.from === myId || d.to !== myId) return;
+  if (videoBlocked) return; // we're the third wheel: no signaling at all
+  if (d.type === 'hi') {
+    if (!call || call.partnerId !== d.from) { scheduleCallCheck(); return; }
+    if (call.partnerSess && d.sess && d.sess !== call.partnerSess
+        && Date.now() - lastRebuild > 3000) {
+      lastRebuild = Date.now(); // partner reloaded their page: start over
+      startCall(call.partnerId, call.partnerName);
+      return;
+    }
+    call.partnerSess = d.sess || call.partnerSess;
+    return;
+  }
+  if (call && d.from === call.partnerId) handleSignal(d);
+}
+
+// the "perfect negotiation" receive side — works no matter who offers first
+async function handleSignal(d) {
+  const pc = call.pc;
+  call.partnerSess = d.sess || call.partnerSess;
+  try {
+    if (d.type === 'offer' || d.type === 'answer') {
+      const collision = d.type === 'offer' &&
+        (call.makingOffer || pc.signalingState !== 'stable');
+      call.ignoreOffer = !call.polite && collision;
+      if (call.ignoreOffer) return; // impolite side lets its own offer win
+      await pc.setRemoteDescription({ type: d.type, sdp: d.sdp });
+      while (call.pending.length) { // candidates that arrived early
+        try { await pc.addIceCandidate(call.pending.shift()); } catch (e) {}
+      }
+      if (d.type === 'offer') {
+        await pc.setLocalDescription();
+        rtcSend(call.partnerId, { type: 'answer', sdp: pc.localDescription.sdp });
+      }
+    } else if (d.type === 'ice') {
+      const c = d.cand || null;
+      if (!pc.remoteDescription && c) { call.pending.push(c); return; }
+      try { await pc.addIceCandidate(c); } catch (e) { /* fine if offer ignored */ }
+    } else if (d.type === 'bye') {
+      endCall(call.partnerName + ' turned video off');
+    }
+  } catch (e) {}
+}
+
+// One shared camera/mic stream for everything: the hand tracker reads the
+// <video> element, the call sends the same tracks — the camera is never
+// opened twice. Returns null if there's no camera to share (call proceeds
+// receive-only: you still SEE the other player).
+async function ensureMedia() {
+  if (!camOn) {
+    const ok = await startCamera();
+    if (!ok) return null;
+    if (handsStatus === 'off') startHands(); // camera's on now — free upgrade
+  }
+  const s = cam.srcObject;
+  if (s && !s.getAudioTracks().length) {
+    try { // camera was granted video-only earlier: politely re-ask for a mic
+      const a = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      s.addTrack(a.getAudioTracks()[0]);
+    } catch (e) { /* mic declined → video-only call */ }
+  }
+  try { if (navigator.audioSession) navigator.audioSession.type = sessType(); } catch (e) {}
+  return s;
+}
+
+// the PiP is tiny — cap what we send so gameplay stays smooth on iPads
+function applySendCaps(pc) {
+  for (const sender of pc.getSenders()) {
+    if (!sender.track || sender.track.kind !== 'video') continue;
+    try {
+      const p = sender.getParameters();
+      p.encodings = (p.encodings && p.encodings.length) ? p.encodings : [{}];
+      p.encodings[0].maxBitrate = 400000;       // ~400 kbps
+      p.encodings[0].maxFramerate = 15;
+      p.encodings[0].scaleResolutionDownBy = Math.max(1, (cam.videoWidth || 640) / 480);
+      sender.setParameters(p).catch && sender.setParameters(p).catch(() => {});
+    } catch (e) {}
+  }
+}
+
+function setVidState(st) {
+  if (!call) return;
+  if (call.connState === st) return;
+  call.connState = st;
+  if (st === 'connecting') showChip('Connecting video… 🎥', 4000);
+  else if (st === 'connected') showChip('Connected to ' + call.partnerName + '! 🎥', 3500);
+  else if (st === 'failed')
+    showChip('Video could not connect — but the game still works! 🍉', 6000);
+  layoutVideos(); updateSendBadge();
+}
+
+async function startCall(partnerId, partnerName) {
+  if (call) endCall(null, true);
+  const pc = new RTCPeerConnection(RTC_CFG);
+  call = { pc, partnerId, partnerName, polite: myId > partnerId, makingOffer: false,
+           ignoreOffer: false, pending: [], partnerSess: '', connState: '',
+           partnerLostAt: 0, bornAt: Date.now() };
+  pc.onnegotiationneeded = async () => {
+    try {
+      call.makingOffer = true;
+      await pc.setLocalDescription();
+      rtcSend(partnerId, { type: 'offer', sdp: pc.localDescription.sdp });
+    } catch (e) {} finally { call.makingOffer = false; }
+  };
+  pc.onicecandidate = e =>
+    rtcSend(partnerId, { type: 'ice', cand: e.candidate ? e.candidate.toJSON() : null });
+  pc.ontrack = e => {
+    if (e.streams && e.streams[0]) remoteVid.srcObject = e.streams[0];
+    else {
+      if (!(remoteVid.srcObject instanceof MediaStream)) remoteVid.srcObject = new MediaStream();
+      remoteVid.srcObject.addTrack(e.track);
+    }
+    remoteVid.play().catch(() => {});
+    layoutVideos();
+  };
+  pc.oniceconnectionstatechange = () => { // self-healing ladder
+    if (!call || call.pc !== pc) return;
+    const st = pc.iceConnectionState;
+    if (st === 'failed') { try { pc.restartIce(); } catch (e) {} }
+    else if (st === 'disconnected') {
+      clearTimeout(call.restartT);
+      call.restartT = setTimeout(() => {
+        if (call && call.pc === pc && pc.iceConnectionState === 'disconnected') {
+          try { pc.restartIce(); } catch (e) {}
+        }
+      }, 3000);
+    }
+  };
+  pc.onconnectionstatechange = () => {
+    if (!call || call.pc !== pc) return;
+    if (pc.connectionState === 'connected') {
+      clearTimeout(call.failT);
+      setVidState('connected');
+      applySendCaps(pc);
+    } else if (pc.connectionState === 'failed') {
+      setVidState('failed'); // checkCall rebuilds from scratch if they're present
+    }
+  };
+  setVidState('connecting');
+  call.failT = setTimeout(() => {
+    if (call && call.pc === pc && pc.connectionState !== 'connected') setVidState('failed');
+  }, VIDEO_FAIL_MS);
+  rtcSend(partnerId, { type: 'hi' });
+  const s = await ensureMedia();
+  if (s && call && call.pc === pc) {
+    for (const t of s.getTracks()) { try { pc.addTrack(t, s); } catch (e) {} }
+    setMicMuted(micMuted); // re-apply mute choice to the fresh tracks
+    applySendCaps(pc);
+  }
+  updateSendBadge();
+}
+
+function endCall(msg, silent) {
+  if (call) {
+    if (!silent) rtcSend(call.partnerId, { type: 'bye' });
+    clearTimeout(call.failT); clearTimeout(call.restartT);
+    try { call.pc.close(); } catch (e) {}
+  }
+  call = null;
+  remoteVid.srcObject = null;
+  if (msg) showChip(msg, 4000);
+  layoutVideos(); updateSendBadge();
+}
+
+// video pairs the two OLDEST seats in the room (by join time, then id) —
+// a third member keeps playing and syncing scores, but gets no video
+function videoPair() {
+  const m = [{ id: myId, j: myJoinStamp || 9e15 }];
+  for (const [pid, d] of room.peers) m.push({ id: pid, j: d.j || 9e15 });
+  m.sort((a, b) => (a.j - b.j) || (a.id < b.id ? -1 : 1));
+  return m.slice(0, 2);
+}
+
+function scheduleCallCheck() { clearTimeout(callCheckT); callCheckT = setTimeout(checkCall, 800); }
+
+function checkCall() {
+  if (!ROOM_ENABLED) return;
+  if (!room) { if (call) endCall(null, true); return; }
+  const pair = videoPair();
+  videoBlocked = room.peers.size >= 2 && !pair.some(x => x.id === myId);
+  if (videoBlocked) {
+    if (!warnedFull) {
+      warnedFull = true;
+      showChip('Video is full — two players are already on camera. Scores still sync! 🍉', 7000);
+    }
+    if (call) endCall(null, true);
+    return;
+  }
+  const other = pair.find(x => x.id !== myId);
+  const pd = other && room.peers.get(other.id);
+  const fresh = pd && Date.now() - (pd.rx || 0) < 12000;
+  if (!other || !fresh) {
+    if (call && !call.partnerLostAt) call.partnerLostAt = Date.now();
+    if (call && Date.now() - call.partnerLostAt > 30000)
+      endCall('Video off — ' + call.partnerName + ' left the room');
+    return;
+  }
+  if (call && call.partnerId === other.id) {
+    call.partnerLostAt = 0;
+    const cs = call.pc.connectionState;
+    // never finished connecting and it's been a while → something deadlocked
+    const stuck = (cs === 'new' || cs === 'connecting') && Date.now() - call.bornAt > 10000;
+    if (Date.now() - lastRebuild > 3000) {
+      if (cs === 'failed' && !stuck) {
+        lastRebuild = Date.now();
+        try { call.pc.restartIce(); return; } catch (e) {} // fresh candidates, same call
+      }
+      if (cs === 'failed' || cs === 'closed' || stuck) {
+        lastRebuild = Date.now();
+        startCall(other.id, call.partnerName); // renegotiate from scratch
+      }
+    }
+    return;
+  }
+  startCall(other.id, (pd.n || 'Friend').slice(0, 12));
+}
+
+// Which video is big and which is the corner PiP.
+// Free play: partner in the corner; tap the PiP to swap who's big.
+// Versus: automatic — THEIR turn puts their video fullscreen behind the
+// giant name + live score (you're watching your kid play: the point),
+// YOUR turn shrinks them back to the corner so you can slice.
+let vidSwap = false;
+function layoutVideos() {
+  const on = !!(call && remoteVid.srcObject);
+  const watching = !!(versus && !versus.playing && !versus.counting);
+  const remoteBig = on && (watching || (vidSwap && !versus));
+  remoteVid.style.display = on ? 'block' : 'none';
+  remoteVid.className = on ? (remoteBig ? 'vid-bg' : 'vid-pip') : '';
+  cam.classList.toggle('vid-pip', on && remoteBig && camOn); // selfie shrinks to the corner
+  const pipHasVideo = remoteBig ? camOn : true;
+  $('pipTag').style.display = on && pipHasVideo ? 'block' : 'none';
+  $('pipName').textContent = !on ? '' : (remoteBig ? 'You' : (call.partnerName || ''));
+}
+
+// tap the PiP to swap big/small (free play); drag it to any corner
+function pipPointer(el) {
+  let down = false, moved = false, sx = 0, sy = 0;
+  el.addEventListener('pointerdown', e => {
+    if (!el.classList.contains('vid-pip')) return;
+    down = true; moved = false; sx = e.clientX; sy = e.clientY;
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  el.addEventListener('pointermove', e => {
+    if (!down) return;
+    if (Math.hypot(e.clientX - sx, e.clientY - sy) > 12) moved = true;
+    if (moved) // follow the finger corner-by-corner
+      document.body.dataset.pip =
+        (e.clientY < innerHeight / 2 ? 't' : 'b') + (e.clientX < innerWidth / 2 ? 'l' : 'r');
+  });
+  el.addEventListener('pointerup', () => {
+    if (!down) return;
+    down = false;
+    if (!moved && !versus) { vidSwap = !vidSwap; layoutVideos(); } // tap = swap
+  });
+}
+pipPointer(cam); pipPointer(remoteVid);
+
+function setMicMuted(m) {
+  micMuted = m;
+  const s = cam.srcObject;
+  if (s) s.getAudioTracks().forEach(t => { t.enabled = !m; });
+  $('muteBtn').textContent = m ? '🔇' : '🎤';
+  $('muteBtn').classList.toggle('muted', m);
+  updateSendBadge();
+}
+$('muteBtn').addEventListener('click', () => setMicMuted(!micMuted));
+
+function updateSendBadge() {
+  const sending = !!(call && call.pc &&
+    call.pc.getSenders().some(sn => sn.track && sn.track.readyState === 'live'));
+  $('sendBadge').style.display = sending ? 'block' : 'none';
+  $('sendTxt').textContent = micMuted ? "you're on camera · mic off" : "you're on camera";
+}
+
+// ---------- debug hooks for automated tests (harmless to leave in) ----------
+window.__game = {
+  get score() { return score; },
+  get fruits() { return fruits; },
+  get running() { return running; },
+  get camOn() { return camOn; },
+  get handsStatus() { return handsStatus; },
+  get audio() { return { state: AC ? AC.state : null,
+    silentLoop: !!silentEl && !silentEl.paused, silentLoopSet: silentEl ? silentEl.loop : null,
+    silentInline: silentEl ? silentEl.src.startsWith('data:audio/wav;base64,') : null,
+    silentBytes: silentEl ? silentEl.src.length : 0 }; },
+  get delegate() { return currentDelegate; },
+  get landmarker() { return landmarker; },
+  get handSeen() { return performance.now() - lastHandSeen < 1000; },
+  get pill() { return { text: $('pill').textContent, cls: $('pill').className }; },
+  get markers() { return handSmooth.size; },
+  get room() { return room && { code: room.code, peers: [...room.peers.keys()], connected: room.client.connected }; },
+  get versus() { return versus && { st: versus.st, a: versus.a, r: versus.r, w: [...versus.w],
+    ts: versus.ts && [...versus.ts], fin: versus.fin, myIdx: versus.myIdx,
+    playing: !!versus.playing, counting: !!versus.counting, waiting: !!versus.waitSince }; },
+  get vov() { const o = $('vov'); return { hidden: o.classList.contains('hidden'),
+    t1: o.querySelector('.v1').textContent, t2: o.querySelector('.v2').textContent,
+    t3: o.querySelector('.v3').textContent }; },
+  setVersusTiming(turn, count, between, stale, over, cancel) {
+    TURN_MS = turn; COUNT_MS = count; BETWEEN_MS = between;
+    if (stale) STALE_MS = stale; if (over) OVER_MS = over; if (cancel) CANCEL_MS = cancel;
+  },
+  get call() { return call && { partner: call.partnerId, partnerName: call.partnerName,
+    polite: call.polite, state: call.connState, sig: call.pc.signalingState,
+    conn: call.pc.connectionState, ice: call.pc.iceConnectionState,
+    hasRemote: !!remoteVid.srcObject, remoteW: remoteVid.videoWidth,
+    senders: call.pc.getSenders().filter(sn => sn.track).map(sn => sn.track.kind) }; },
+  get videoBlocked() { return videoBlocked; },
+  get micMuted() { return micMuted; },
+  setVideoTiming(ms) { VIDEO_FAIL_MS = ms; },
+  videoToScreen,
+  spawnAt(x, y) { spawn(); const f = fruits[fruits.length - 1]; f.x = x; f.y = y; f.vx = f.vy = f.g = f.spin = 0; },
+  sliceAll() { while (fruits.length) sliceFruit(0, 0); },
+  // feed synthetic index-fingertip positions ([nx,ny] in camera coords, null =
+  // empty frame) through the REAL detection pipeline, one per detection tick
+  feedLandmarks(frames) {
+    fedFrames.push(...frames.map(f => f ? {
+      landmarks: [Array.from({ length: 21 }, () => ({ x: f[0], y: f[1], z: 0 }))],
+      handednesses: [[{ categoryName: 'Right' }]],
+    } : { landmarks: [], handednesses: [] }));
+  },
+};
+</script>
+</body>
+</html>
