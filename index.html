@@ -709,7 +709,15 @@ function addTrailPoint(key, x, y) {
   tr.pts.push({ x, y, t: performance.now() });
   if (tr.pts.length > 40) tr.pts.shift();
   if (!running) return;
-  // (M3: ember sparks spit off the blade into the 3D particle pool here)
+  // ember sparks spit off the moving blade, dropped into world space
+  if (prev && fxAdd && Math.random() < .5) {
+    unprojectAt(x, y, _ua);
+    const orange = Math.random() > .7;
+    fxAdd.spawn(_ua.x, _ua.y, _ua.z,
+                rand(-.5, .5), rand(-.2, .6), rand(-.3, .1),
+                rand(.25, .45), rand(.05, .1), 0,
+                orange ? 1.7 : .9, orange ? 1.0 : 1.9, orange ? .3 : .55);
+  }
   // Hand blades get extra forgiveness: tracking runs at ~15Hz and a waving
   // arm is not a stylus, so the hit radius is bigger than for touch.
   const pad = key.startsWith('hand') ? 22 : 8;
@@ -1125,6 +1133,9 @@ function render(now) {
     camera.position.set(0, 1.6, 0);
     camera.quaternion.copy(camBaseQ);
   }
+
+  updateRibbons(now);
+  updateMarkers(now);
 
   if (remoteIsBig) return; // fullscreen call video owns the GPU while watching
   composer.render();
@@ -1610,6 +1621,119 @@ function slashEnemy(i, ang) {
   }
   if (kills % 25 === 0 && !versus) celebrate();
   onScoreChange(e.kind.pts);
+}
+
+/* =====================================================================
+   THE SLASH — a glowing ribbon of light drawn through the night.
+   Trail points (screen space, the same ones collision uses) are
+   unprojected onto a plane 2.2m in front of the camera and built into
+   a tapered triangle strip with additive vertex colors: toxic green at
+   the tail, hotter than 1.0 at the head so the bloom pass ignites it.
+   ===================================================================== */
+const RIBBON_DIST = 2.2, RIBBON_MAX = 40;
+const ribbons = [];
+const _ua = new THREE.Vector3(), _ub = new THREE.Vector3(), _uc = new THREE.Vector3(),
+      _us = new THREE.Vector3(), _ufwd = new THREE.Vector3();
+
+// screen pixels -> a world point at fixed forward depth from the camera
+function unprojectAt(px, py, out) {
+  out.set((px / W) * 2 - 1, -(py / H) * 2 + 1, .5)
+     .unproject(camera)
+     .sub(camera.position)
+     .normalize();
+  return out.multiplyScalar(RIBBON_DIST / Math.max(.05, -out.z))
+            .add(camera.position);
+}
+
+function makeRibbon() {
+  const pos = new Float32Array(RIBBON_MAX * 2 * 3);
+  const col = new Float32Array(RIBBON_MAX * 2 * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const idx = [];
+  for (let i = 0; i < RIBBON_MAX - 1; i++)
+    idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  geo.setIndex(idx);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
+    depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 990; // over everything: it's light, not an object
+  scene3.add(mesh);
+  return { mesh, geo, pos, col, key: null };
+}
+
+function updateRibbons(now) {
+  for (const r of ribbons)
+    if (r.key && !trails.has(r.key)) { r.key = null; r.mesh.visible = false; }
+  for (const [key, tr] of trails) {
+    tr.pts = tr.pts.filter(p => now - p.t < TRAIL_MS);
+    if (!tr.pts.length) { trails.delete(key); continue; }
+    let r = ribbons.find(q => q.key === key);
+    if (!r) {
+      r = ribbons.find(q => !q.key);
+      if (!r && ribbons.length < 4) { r = makeRibbon(); ribbons.push(r); }
+      if (!r) continue;
+      r.key = key;
+    }
+    const n = tr.pts.length;
+    if (n < 2) { r.mesh.visible = false; continue; }
+    r.mesh.visible = true;
+    camera.getWorldDirection(_ufwd);
+    for (let i = 0; i < n; i++) {
+      const p = tr.pts[i];
+      unprojectAt(p.x, p.y, _ua);
+      const pn = tr.pts[Math.min(n - 1, i + 1)], pp = tr.pts[Math.max(0, i - 1)];
+      unprojectAt(pn.x, pn.y, _ub);
+      unprojectAt(pp.x, pp.y, _uc);
+      _ub.sub(_uc);
+      if (_ub.lengthSq() < 1e-8) _ub.set(0, 1, 0);
+      _us.crossVectors(_ub.normalize(), _ufwd).normalize(); // side, in view plane
+      const age = Math.min(1, (now - p.t) / TRAIL_MS);      // 0 = newest
+      const head = i / (n - 1);                             // 1 at the leading edge
+      const wHalf = .012 + .055 * (1 - age) * (.25 + .75 * head);
+      const o = i * 6;
+      r.pos[o]     = _ua.x + _us.x * wHalf;
+      r.pos[o + 1] = _ua.y + _us.y * wHalf;
+      r.pos[o + 2] = _ua.z + _us.z * wHalf;
+      r.pos[o + 3] = _ua.x - _us.x * wHalf;
+      r.pos[o + 4] = _ua.y - _us.y * wHalf;
+      r.pos[o + 5] = _ua.z - _us.z * wHalf;
+      const heat = (1 - age) * (.35 + .65 * head);
+      const cr = .3 + 1.9 * heat, cg = .85 + 1.75 * heat, cb = .25 + 1.55 * heat;
+      r.col[o] = cr; r.col[o + 1] = cg; r.col[o + 2] = cb;
+      r.col[o + 3] = cr; r.col[o + 4] = cg; r.col[o + 5] = cb;
+    }
+    r.geo.attributes.position.needsUpdate = true;
+    r.geo.attributes.color.needsUpdate = true;
+    r.geo.setDrawRange(0, (n - 1) * 6);
+  }
+}
+
+// glowing fingertip markers — the player instantly sees "that dot is my
+// hand", even when it's holding still and there's no trail to look at
+const markerSprites = [];
+function updateMarkers(now) {
+  let mi = 0;
+  for (const [key, s] of handSmooth) {
+    let m = markerSprites[mi];
+    if (!m) {
+      m = new THREE.Sprite(new THREE.SpriteMaterial({ map: eyeTex,
+        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+        color: new THREE.Color(.8, 2.2, .6) }));
+      m.renderOrder = 995;
+      scene3.add(m);
+      markerSprites.push(m);
+    }
+    m.visible = true;
+    unprojectAt(s.x, s.y, _ua);
+    m.position.copy(_ua);
+    const pul = .15 + .025 * Math.sin(now / 140);
+    m.scale.set(pul, pul, 1);
+    mi++;
+  }
+  for (; mi < markerSprites.length; mi++) markerSprites[mi].visible = false;
 }
 
 // ---------- touch & mouse input (always on — works alongside hands) ----------
