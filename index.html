@@ -1246,8 +1246,10 @@ function initWorld() {
   flashlight.target.position.set(0, .8, -16);
   scene3.add(flashlight, flashlight.target);
 
-  // ground: wet asphalt — low roughness + the cold moonlight = the sheen
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a554c, roughness: .35, metalness: .18 });
+  // ground: damp asphalt. Roughness matters more than it looks: a glossy
+  // floor mirrors the eye-height flashlight's specular lobe STRAIGHT back
+  // into the camera as a giant clipped pool (which bloom then eats).
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a554c, roughness: .62, metalness: .06 });
   loadStreetTex('asphalt_diff_1k.jpg', 'asphalt', 4, 16, groundMat);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(22, 90), groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -1377,7 +1379,11 @@ function initWorld() {
   // post chain: render -> bloom (half res) -> grade -> output
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene3, camera));
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(W / 2, H / 2), .45, .35, .85);
+  // threshold at clip-only: the lit floor under the flashlight tone-maps to
+  // ~.9 over a huge area and was blooming into center-screen soup. Emissives
+  // are DESIGNED >1.0 (eyes, ribbon, fires, beam core) so they still ignite;
+  // the moon sits far below and never blooms.
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(W / 2, H / 2), .4, .35, .98);
   composer.addPass(bloomPass);
   gradePass = new ShaderPass(GradeShader);
   composer.addPass(gradePass);
@@ -1417,7 +1423,7 @@ function render(now) {
   ambLight.intensity = (AMB_BASE + 1.5 * flash) * brightMul;
   rimLight.intensity = (RIM_BASE + 1.5 * flash) * brightMul;
   scene3.fog.density = FOG_D * (1 - .4 * flash);
-  if (bloomPass.enabled) bloomPass.strength = .45 + .5 * flash;
+  if (bloomPass.enabled) bloomPass.strength = .4 + .5 * flash;
   gradePass.uniforms.uFlash.value = flash;
   gradePass.uniforms.uTime.value = now * .001;
   const sdt = now - scareT; // claw scare: fast in, slow out, 750ms total
