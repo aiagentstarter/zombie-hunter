@@ -378,13 +378,16 @@ $('gear').addEventListener('click', () => { $('panel').classList.toggle('hidden'
 $('closePanel').addEventListener('click', () => $('panel').classList.add('hidden'));
 
 // BRIGHTNESS — real displays vary wildly (the first hardware test proved
-// it); the slider multiplies the tone-mapping exposure, live, and saves
+// it). Pass 2: the slider multiplies the LIGHT RIG, not the exposure —
+// exposure also lifts the flat fog color, which washed the whole frame
+// gray at max. Lights only touch lit surfaces; the night stays black.
 let brightMul = 1;
 try { brightMul = parseFloat(localStorage.getItem('zh_bright')) || 1; } catch (e) {}
 $('bright').value = brightMul;
 $('bright').addEventListener('input', e => {
   brightMul = parseFloat(e.target.value);
-  if (renderer) renderer.toneMappingExposure = BASE_EXPOSURE * brightMul;
+  if (flashlight) flashlight.intensity = FL_BASE * brightMul;
+  // ambient/dir/rim pick brightMul up in render() every frame
   try { localStorage.setItem('zh_bright', brightMul); } catch (err) {}
 });
 
@@ -823,11 +826,16 @@ function update(dt, now) {
    does the detail work. No shadow maps anywhere.
    ===================================================================== */
 let renderer = null, scene3, camera, composer, bloomPass, gradePass;
-let dirLight, ambLight, moonHalo, flashlight, camBaseQ = null;
+let dirLight, ambLight, rimLight, moonHalo, flashlight, camBaseQ = null;
 let fires = [], windowGroups = [], hordeBoards = [];
-const FOG_COLOR = 0x041208, FOG_D = 0.04; // tuning pass 1: one step thinner
-const BASE_EXPOSURE = 1.5;
-const EMISSIVE_FLOOR = 0x0a1a0c; // creatures may be dark, never pure black
+const FOG_COLOR = 0x041208, FOG_D = 0.04;
+// Tuning pass 2 root-cause fix: these MUST be the single source of truth.
+// render() rebuilds light intensity every frame for the lightning envelope,
+// so any value set only in initWorld is dead code (that bug ate pass 1).
+const BASE_EXPOSURE = 1.7;     // FIXED — exposure lifts the flat fog color too,
+                               // which is why the old slider washed out at max
+const AMB_BASE = 1.35, DIR_BASE = 1.45, RIM_BASE = 2.2, FL_BASE = 55;
+const EMISSIVE_FLOOR = 0x0f2412; // creatures may be dark, never pure black
 let PARTICLE_K = 1, degradeStep = 0, __fps = 60;
 
 // lightning: the 2D game's exact double-blink envelope, now driving the
@@ -931,7 +939,7 @@ function initWorld() {
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); // perf budget cap
   renderer.setSize(W, H);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = BASE_EXPOSURE * brightMul; // BRIGHTNESS slider
+  renderer.toneMappingExposure = BASE_EXPOSURE; // fixed; brightness drives lights
 
   scene3 = new THREE.Scene();
   scene3.background = new THREE.Color(FOG_COLOR);
@@ -942,15 +950,21 @@ function initWorld() {
   camera.lookAt(0, 1.2, -12);
   camBaseQ = camera.quaternion.clone();
 
-  ambLight = new THREE.AmbientLight(0x1c3a26, 2.1);      // 2x: bodies, not voids
-  dirLight = new THREE.DirectionalLight(0xbcd4ff, 1.6);  // cool moon rim, boosted
+  // all intensities come from the *_BASE constants — render() re-applies
+  // them every frame (lightning + the BRIGHTNESS slider), so values set
+  // only here would be dead on arrival
+  ambLight = new THREE.AmbientLight(0x1c3a26, AMB_BASE);
+  dirLight = new THREE.DirectionalLight(0xbcd4ff, DIR_BASE); // cool moon key
   dirLight.position.set(-14, 30, -20);
-  scene3.add(ambLight, dirLight);
+  // rim: from behind-above the horde toward the camera — lights shoulder
+  // and head edges so silhouettes always separate from the dark
+  rimLight = new THREE.DirectionalLight(0xa8ffc0, RIM_BASE);
+  rimLight.position.set(4, 16, -46);
+  scene3.add(ambLight, dirLight, rimLight);
 
-  // the player's flashlight — genre-correct fix from the first hardware
-  // test: the night stays dark, YOUR light reveals what's coming. Warm,
-  // soft-edged cone, no shadows, follows the camera (and its shake).
-  flashlight = new THREE.SpotLight(0xfff0d2, 30, 24, .42, .55, 1.5);
+  // the player's flashlight — the night stays dark, YOUR light reveals
+  // what's coming. Hot center, soft penumbra edge, rakes to ~28m.
+  flashlight = new THREE.SpotLight(0xfff0d2, FL_BASE, 28, .50, .70, 1.2);
   flashlight.position.set(0, 1.55, .2);
   flashlight.target.position.set(0, .8, -16);
   scene3.add(flashlight, flashlight.target);
@@ -1122,8 +1136,9 @@ function render(now) {
   const fdt = now - flashAt; // double-blink: pop, dip, pop, fade
   flash = fdt < 70 ? .95 : fdt < 140 ? .35 : fdt < 240 ? .8
         : Math.max(0, .8 - (fdt - 240) / 450 * .8);
-  dirLight.intensity = 1.1 + 3.2 * flash;
-  ambLight.intensity = 1.05 + 1.5 * flash;
+  dirLight.intensity = (DIR_BASE + 3.2 * flash) * brightMul;
+  ambLight.intensity = (AMB_BASE + 1.5 * flash) * brightMul;
+  rimLight.intensity = (RIM_BASE + 1.5 * flash) * brightMul;
   scene3.fog.density = FOG_D * (1 - .4 * flash);
   if (bloomPass.enabled) bloomPass.strength = .45 + .5 * flash;
   gradePass.uniforms.uFlash.value = flash;
@@ -2968,7 +2983,7 @@ window.__game = {
   setBloom(on) { bloomPass.enabled = !!on; },
   setBrightness(v) {
     brightMul = v;
-    renderer.toneMappingExposure = BASE_EXPOSURE * brightMul;
+    if (flashlight) flashlight.intensity = FL_BASE * brightMul;
   },
   get drawCalls() { return renderer ? renderer.info.render.calls : 0; },
   // TEST ONLY: pretend camera + tracker are live so fed frames can drive the
