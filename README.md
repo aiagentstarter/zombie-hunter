@@ -1,5 +1,38 @@
 # 🧟 Zombie Hunter — *Survive the night*
 
+> **3D rebuild in progress:** `index.html` is becoming a Three.js first-person
+> night-street game; the complete 2D game lives on unchanged as
+> [classic.html](classic.html). The section below is ready NOW so you can grab
+> real monsters while the build runs.
+
+## Real 3D monsters from Mixamo (free, ~15 minutes — do this anytime)
+
+The 3D game renders any enemy that has a rigged model in `models/`, and uses a
+fog-lit sprite billboard for any enemy that doesn't. You never edit code —
+models are drop-in.
+
+1. Go to <https://www.mixamo.com> and sign in (free Adobe account).
+2. **Characters** tab → search **zombie** — pick the most realistic ones. Also
+   search **mutant**: a hulking one makes a great brute.
+3. With a character selected, open **Animations** → search **zombie walk**
+   (for the crawler use a **crawl** animation; check **In Place** if shown).
+4. **Download** with Format **FBX Binary (.fbx)** and Skin **With Skin**.
+5. Repeat for 3–4 creatures and drop every file into **`models/raw/`** —
+   no renaming, no conversion needed on your side.
+6. Run `python3 tools/convert_models.py`. It maps each file by its name
+   (crawl→crawler, mutant→brute, ghoul/ghost→ghoul, zombie/walk→zombie),
+   converts FBX→GLB (via `npx fbx2gltf`, or Blender if installed), writes
+   `models/zombie.glb` etc., and prints which enemies now have real models.
+   Ambiguous names are skipped with instructions
+   (`--map "My File.fbx=brute"` overrides).
+7. Reload the game. When deploying, upload the `models/*.glb` files alongside
+   `index.html` (skip `models/raw/` — that's just your downloads).
+
+Notes: the **bat** is fine as a billboard (no model needed). Keep characters
+modest — the converter flags any GLB over 4 MB. A clip whose name contains
+*walk/run/crawl/fly* is used for movement; one containing *death/die* plays on
+kills when present.
+
 A dark, stylized horde-slashing game built on the Fruit Party engine. Zombies climb out of
 the ground, crawl, float, and swoop through a ruined moonlit city — you slash them by
 **waving your hand at the camera** (or just swiping the screen). Glowing **green ichor**,
