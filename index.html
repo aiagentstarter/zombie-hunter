@@ -1462,6 +1462,10 @@ const ENEMY3D = { // world height (m), center height, forward speed (m/s)
 const corpses = [];
 let scareT = -9e9, lastScare = 0, scareCount = 0;
 let fxAdd = null, fxSmoke = null;
+// the lunge: burst speed per kind, and a global limiter so a pack
+// arriving together doesn't all pounce in the same instant
+const LUNGE_V = { shambler: 5.5, crawler: 4.2, ghoul: 5.0, bat: 5.5, brute: 3.2 };
+let lastLungeAt = 0;
 
 // ---------- two particle pools: additive ichor/sparks, soft dark smoke ----
 const softTex = (() => {
@@ -1848,12 +1852,33 @@ function updateEnemies(dt, now) {
         e.roll = Math.sin(e.stomp * Math.PI * 2) * .05;
         e.gaitY = Math.abs(Math.sin(e.stomp * Math.PI * 2)) * .08;
       }
+      // THE LUNGE: close enough to smell you — it drops the shuffle and
+      // bursts straight in. The claw scare then fires at contact, so the
+      // scare becomes a two-beat: snarl ... CLAWS.
+      if (!e.lunging && e.z > (k === 'brute' ? -3.8 : -3.4)
+          && now - lastLungeAt > 600) {
+        e.lunging = true;
+        e.lungeT = 0;
+        e.xAim = 0;
+        lastLungeAt = now;
+        if (k === 'brute') playRoar(true);
+        else playLungeStinger(Math.max(-.8, Math.min(.8, e.x / 8)));
+      }
+      if (e.lunging) {
+        e.lungeT += dt;
+        const s = Math.min(1, e.lungeT / .15); // smoothstep up to burst speed
+        fwd = LUNGE_V[k] * s * s * (3 - 2 * s);
+        e.gaitY = -.12 * Math.sin(Math.min(1, e.lungeT / .45) * Math.PI); // pounce dip
+        if (k === 'bat') e.baseY += (1.2 - e.baseY) * Math.min(1, dt * 6); // dives at your face
+        e.x += (0 - e.x) * Math.min(1, dt * 3); // hard steer onto you
+      }
       e.z += fwd * dt;
       e.x += (e.xAim - e.x) * .12 * dt; // drift into the player's lane
       if (e.z > -1.3) { clawScare(i); continue; } // reached you — scare, no harm
     }
     e.cy = e.baseY + e.gaitY;
-    if (e.mixer) e.mixer.update(dt * (0.6 + 0.8 * Math.min(1, e.spd)));
+    if (e.mixer) e.mixer.update(dt * (e.lunging ? 2.4
+                                    : 0.6 + 0.8 * Math.min(1, e.spd)));
     // face the camera (boards yaw-only) or the walk direction (models:
     // Mixamo rigs face +Z, and they advance toward +z — yaw 0 plus a small
     // steer toward the lane they're drifting into)
@@ -1864,8 +1889,10 @@ function updateEnemies(dt, now) {
     e.mesh.rotation.set(0, yaw, e.roll);
     if (e.eyeMat) {
       // eyes get HOTTER with distance: far enemies are trackable by their
-      // glow long before their bodies resolve out of the fog
-      const far = Math.min(1.9, Math.max(1, 1 + (-e.z - 8) / 18));
+      // glow long before their bodies resolve out of the fog — and they
+      // FLARE when the thing commits to you
+      const far = Math.min(1.9, Math.max(1, 1 + (-e.z - 8) / 18))
+                * (e.lunging ? 1.5 : 1);
       e.eyeMat.color.setRGB(.7 * far, 2.1 * far, .5 * far);
       e.eyeMat.opacity = .55 + .3 * Math.sin(now / 170 + e.phase);
     }
@@ -3209,7 +3236,7 @@ window.__game = {
     return enemies.map(e => ({ kind: e.kind.id, x: +e.x.toFixed(2),
       y: +e.cy.toFixed(2), z: +e.z.toFixed(2), hp: e.hp, glb: !!e.glb,
       sx: Math.round(e.sx), sy: Math.round(e.sy), sr: Math.round(e.sr),
-      hittable: !!e.hittable }));
+      hittable: !!e.hittable, lunging: !!e.lunging }));
   },
   get scareCount() { return scareCount; },
   get modelStatus() {
@@ -3294,7 +3321,8 @@ window.__game = {
     const p = camera.position.clone()
       .add(dir.multiplyScalar(Math.abs((dist || 8) / dir.z)));
     const e = { kind, hp: kind.hp, t: 0, phase: 0, flash: 0, kick: 0,
-                x: p.x, z: p.z, xAim: p.x, spd: 0, pin: true,
+                x: p.x, z: p.z, xAim: p.x, pin: true,
+                spd: ENEMY3D[id].speed[0], // movement only runs if a test unpins
                 baseY: p.y, cy: p.y, gaitY: 0, roll: 0, stomp: 0,
                 sx, sy, sr: 0, hittable: true };
     dressEnemy(e);
