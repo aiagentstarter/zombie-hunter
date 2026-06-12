@@ -339,6 +339,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // ---------- tiny helpers ----------
 const $ = id => document.getElementById(id);
@@ -676,9 +677,6 @@ const eyeGlowSpr = (() => {
   return c;
 })();
 
-// M2 dresses enemies with billboard or GLB looks; the street is empty until then
-function dressEnemy() {}
-
 let lastBrute = 0;
 function pickKind(now) {
   // the brute is rare: never in the first 15s, never twice within 14s
@@ -693,8 +691,13 @@ function pickKind(now) {
   return KINDS[0];
 }
 
-// M2: enemies spawn deep in the fog and advance on the player
-function spawn() {}
+/* ---------- slicing: blade trails + collision ----------
+   Every input source gets its own trail: each touching finger, the mouse,
+   and each tracked hand. A trail is just the last ~0.3s of points. The
+   math is the proven 2D engine, fed by 3D screen-space projections. */
+const TRAIL_MS = 280;
+const trails = new Map();
+let hueSeed = 0;
 
 // every blade gets a toxic green tone of its own (still tells two hands apart)
 const BLADE_HUES = [96, 110, 122, 134];
@@ -759,14 +762,8 @@ function showCombo(n) {
 let shakeAmp = 0;
 function addShake(a) { shakeAmp = Math.min(12, shakeAmp + a); }
 
-// M2 rebuilds the kill in 3D (ichor burst, crumple, smoke). The logic
-// contract is frozen: brute 420ms shield BEFORE the kill branch, 1s combo
-// window, onScoreChange(pts) feeding Versus.
-function slashEnemy(i, ang) {}
-
 // glowing green ichor — never red
 const ICHOR = ['#7dff5e', '#4ddb3a', '#b6ff7a', '#2fae22'];
-function ichor() {} // M2: 3D particle burst
 
 const PRAISE = ['FEARLESS!', 'UNSTOPPABLE!', 'NIGHT STALKER!', 'MONSTER SLAYER!',
                 'LEGENDARY!', 'UNDEAD UNDONE!'];
@@ -780,7 +777,15 @@ function celebrate() { // every 25 kills: a private lightning storm
 
 // ---------- physics + drawing ----------
 function update(dt, now) {
-  // M2: enemies advance here (and versus gates their spawning)
+  // in a Versus match, things only come out of the fog during YOUR turn
+  const maySpawn = !versus || versus.playing;
+  if (maySpawn && now > nextSpawn && enemies.length < MAXF) {
+    spawn();
+    nextSpawn = now + rand(1400, 2200) / speedMul;
+  }
+  updateEnemies(dt, now);
+  updateCorpses(dt);
+  if (fxAdd) { fxAdd.update(dt); fxSmoke.update(dt); }
   if (!nextStorm) nextStorm = now + rand(30000, 60000);
   if (now > nextStorm) {
     lightning();
@@ -1091,6 +1096,9 @@ function render(now) {
   if (bloomPass.enabled) bloomPass.strength = .45 + .5 * flash;
   gradePass.uniforms.uFlash.value = flash;
   gradePass.uniforms.uTime.value = now * .001;
+  const sdt = now - scareT; // claw scare: fast in, slow out, 750ms total
+  gradePass.uniforms.uScare.value =
+    sdt < 120 ? sdt / 120 * .8 : Math.max(0, .8 - (sdt - 120) / 630 * .8);
 
   const hv = now < hordeUntil;
   for (const b of hordeBoards) {
@@ -1127,12 +1135,482 @@ function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, .05);
   last = now;
-  if (running) { update(dt, now); detectHands(now); versusTick(now); }
+  if (running) { update(dt, now); projectEnemies(); detectHands(now); versusTick(now); }
   render(now);
   updatePill(now);
   perfGuard(now);
 }
 document.addEventListener('visibilitychange', () => { last = performance.now(); });
+
+/* =====================================================================
+   ENEMIES IN 3D — they spawn deep in the fog and come for you.
+   Tier 1 (default): each enemy is a camera-facing board cut from its
+   sprites/ image, LIT by the scene (Lambert, not Sprite), with additive
+   glow planes pinned over the eyes the analyzer found. Tier 2: drop
+   rigged GLBs into models/ (see README) and they're used instead —
+   probed at boot, zero code changes. Hit-testing is screen-space, so
+   both tiers collide identically.
+   ===================================================================== */
+const ENEMY3D = { // world height (m), center height, forward speed (m/s)
+  shambler: { h: 1.9, y0: .95, speed: [.85, 1.25] },
+  crawler:  { h: .85, y0: .45, speed: [1.0, 1.5] },
+  ghoul:    { h: 1.7, y0: 1.55, speed: [.7, 1.0] },
+  bat:      { h: .9,  y0: 1.9, speed: [2.0, 2.8] },
+  brute:    { h: 2.7, y0: 1.35, speed: [.45, .65] },
+};
+const corpses = [];
+let scareT = -9e9, lastScare = 0, scareCount = 0;
+let fxAdd = null, fxSmoke = null;
+
+// ---------- two particle pools: additive ichor/sparks, soft dark smoke ----
+const softTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  r.addColorStop(0, 'rgba(255,255,255,1)');
+  r.addColorStop(.6, 'rgba(255,255,255,.45)');
+  r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+
+class FxPool {
+  constructor(cap, blending, accelY) {
+    this.cap = cap; this.n = 0; this.accelY = accelY;
+    this.px = new Float32Array(cap * 3);
+    this.pv = new Float32Array(cap * 3);
+    this.life = new Float32Array(cap);
+    this.age = new Float32Array(cap);
+    this.sz = new Float32Array(cap);
+    this.grow = new Float32Array(cap);
+    this.col = new Float32Array(cap * 3);
+    this.al = new Float32Array(cap);
+    this.geo = new THREE.BufferGeometry();
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.px, 3));
+    this.geo.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3));
+    this.geo.setAttribute('aSize', new THREE.BufferAttribute(this.sz, 1));
+    this.geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.al, 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: softTex } },
+      transparent: true, depthWrite: false, blending,
+      vertexShader:
+        'attribute vec3 aColor; attribute float aSize; attribute float aAlpha;\n' +
+        'varying vec3 vC; varying float vA;\n' +
+        'void main(){ vC = aColor; vA = aAlpha;\n' +
+        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);\n' +
+        '  gl_PointSize = aSize * (280.0 / -mv.z);\n' +
+        '  gl_Position = projectionMatrix * mv; }',
+      fragmentShader:
+        'uniform sampler2D uTex; varying vec3 vC; varying float vA;\n' +
+        'void main(){ gl_FragColor = texture2D(uTex, gl_PointCoord) * vec4(vC, vA); }',
+    });
+    this.points = new THREE.Points(this.geo, mat);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 100;
+    scene3.add(this.points);
+  }
+  spawn(x, y, z, vx, vy, vz, life, size, grow, r, g, b) {
+    if (this.n >= Math.floor(this.cap * PARTICLE_K)) return;
+    const i = this.n++;
+    this.px[i*3] = x; this.px[i*3+1] = y; this.px[i*3+2] = z;
+    this.pv[i*3] = vx; this.pv[i*3+1] = vy; this.pv[i*3+2] = vz;
+    this.life[i] = life; this.age[i] = 0;
+    this.sz[i] = size; this.grow[i] = grow;
+    this.col[i*3] = r; this.col[i*3+1] = g; this.col[i*3+2] = b;
+    this.al[i] = 1;
+  }
+  update(dt) {
+    for (let i = this.n - 1; i >= 0; i--) {
+      this.age[i] += dt;
+      if (this.age[i] >= this.life[i]) { // swap-remove the dead one
+        const l = --this.n;
+        if (i !== l) {
+          for (let k = 0; k < 3; k++) {
+            this.px[i*3+k] = this.px[l*3+k];
+            this.pv[i*3+k] = this.pv[l*3+k];
+            this.col[i*3+k] = this.col[l*3+k];
+          }
+          this.life[i] = this.life[l]; this.age[i] = this.age[l];
+          this.sz[i] = this.sz[l]; this.grow[i] = this.grow[l];
+          this.al[i] = this.al[l];
+        }
+        continue;
+      }
+      this.pv[i*3+1] += this.accelY * dt;
+      this.px[i*3] += this.pv[i*3] * dt;
+      this.px[i*3+1] += this.pv[i*3+1] * dt;
+      this.px[i*3+2] += this.pv[i*3+2] * dt;
+      this.sz[i] += this.grow[i] * dt;
+      this.al[i] = 1 - this.age[i] / this.life[i];
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.aColor.needsUpdate = true;
+    this.geo.attributes.aSize.needsUpdate = true;
+    this.geo.attributes.aAlpha.needsUpdate = true;
+    this.geo.setDrawRange(0, this.n);
+  }
+}
+function initFx() {
+  fxAdd = new FxPool(400, THREE.AdditiveBlending, -3);   // ichor falls
+  fxSmoke = new FxPool(160, THREE.NormalBlending, .35);  // smoke climbs
+}
+const ICHOR_RGB = ICHOR.map(h => [parseInt(h.slice(1, 3), 16) / 255,
+                                  parseInt(h.slice(3, 5), 16) / 255,
+                                  parseInt(h.slice(5, 7), 16) / 255]);
+
+function ichorBurst(e, k) {
+  if (!fxAdd) return;
+  const n = Math.round(18 * k + 6);
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), up = rand(-.3, 1.4), sp = rand(1.2, 3.4) * Math.min(k, 1.6);
+    const c = ICHOR_RGB[(Math.random() * ICHOR_RGB.length) | 0];
+    fxAdd.spawn(e.x, e.cy, e.z,
+                Math.cos(a) * sp, up * sp, Math.sin(a) * sp * .4,
+                rand(.35, .7), rand(.1, .22) * Math.min(k, 1.5), 0,
+                c[0] * 1.6, c[1] * 1.6, c[2] * 1.6); // >1 greens catch the bloom
+  }
+}
+function smokeBurst(x, y, z, n) {
+  if (!fxSmoke) return;
+  for (let i = 0; i < n; i++)
+    fxSmoke.spawn(x + rand(-.3, .3), y + rand(-.2, .4), z + rand(-.2, .2),
+                  rand(-.25, .25), rand(.2, .6), rand(-.25, .25),
+                  rand(.7, 1.2), rand(.25, .5), rand(.5, .9),
+                  .16, .22, .16);
+}
+
+// ---------- the flying +1 / +5 (pooled DOM, military font) ----------
+const ptexts = [];
+function ptext(txt, x, y) {
+  let p = ptexts.find(q => !q.busy);
+  if (!p) {
+    if (ptexts.length >= 8) return;
+    p = { el: document.createElement('div') };
+    p.el.className = 'ptext';
+    $('fx3d').appendChild(p.el);
+    ptexts.push(p);
+  }
+  p.busy = true;
+  p.el.textContent = txt;
+  p.el.style.left = x + 'px';
+  p.el.style.top = y + 'px';
+  p.el.classList.remove('go');
+  void p.el.offsetWidth; // restart the CSS animation
+  p.el.classList.add('go');
+  setTimeout(() => { p.busy = false; }, 950);
+}
+
+// ---------- looks: billboard textures + optional GLB models ----------
+const bbGeo = new THREE.PlaneGeometry(1, 1);
+const eyeTex = new THREE.CanvasTexture(eyeGlowSpr);
+const blobTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const r = g.createRadialGradient(32, 32, 4, 32, 32, 31);
+  r.addColorStop(0, 'rgba(0,0,0,.7)');
+  r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+
+const bbCache = {};
+let silFallback = null;
+function billboardTexFor(kid) {
+  if (bbCache[kid]) return bbCache[kid];
+  const ph = photos[kid];
+  if (ph) { // crop the analyzed bbox so the board is ALL creature
+    const c = document.createElement('canvas');
+    const s = Math.min(1, 512 / Math.max(ph.sw, ph.sh));
+    c.width = Math.max(1, Math.round(ph.sw * s));
+    c.height = Math.max(1, Math.round(ph.sh * s));
+    c.getContext('2d').drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sh, 0, 0, c.width, c.height);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    bbCache[kid] = { tex, aspect: ph.aspect, eyes: ph.eyes }; // memoize real art only
+    return bbCache[kid];
+  }
+  // rule 1 fallback: a gaunt dark fog-silhouette, never cartoon art. NOT
+  // cached per kind — the moment the sprite finishes analyzing, new spawns
+  // get the real board.
+  if (!silFallback) {
+    const tex = makeSilhouetteTex();
+    tex.colorSpace = THREE.SRGBColorSpace;
+    silFallback = { tex, aspect: .5, eyes: [[.42, .2], [.58, .2]] };
+  }
+  return silFallback;
+}
+
+// tier 2: probe models/<kind>.glb once at boot; missing files = billboards
+const glbs = {};
+const GLB_FILES = { shambler: 'models/zombie.glb', crawler: 'models/crawler.glb',
+                    ghoul: 'models/ghoul.glb', bat: 'models/bat.glb',
+                    brute: 'models/brute.glb' };
+(async () => {
+  const loader = new GLTFLoader();
+  for (const [kid, file] of Object.entries(GLB_FILES)) {
+    try {
+      const head = await fetch(file, { method: 'HEAD' });
+      if (!head.ok) continue;
+      const gltf = await loader.loadAsync(file);
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      gltf.userData = { rawH: Math.max(size.y, .01), rawMinY: box.min.y };
+      gltf.scene.traverse(o => { if (o.material) o.material.fog = true; });
+      glbs[kid] = gltf;
+    } catch (e) { /* billboard fallback */ }
+  }
+})();
+
+function dressEnemy(e) {
+  const kid = e.kind.id, P = ENEMY3D[kid];
+  const tpl = glbs[kid];
+  if (tpl) {
+    e.mesh = SkeletonUtils.clone(tpl.scene);
+    const k = P.h / tpl.userData.rawH;
+    e.mesh.scale.setScalar(k);
+    e.glb = true;
+    e.meshYOff = -tpl.userData.rawMinY * k - P.y0; // feet on the ground
+    const clips = tpl.animations || [];
+    const clip = clips.find(c => /walk|run|crawl|fly|zombie/i.test(c.name)) || clips[0];
+    if (clip) {
+      e.mixer = new THREE.AnimationMixer(e.mesh);
+      e.mixer.clipAction(clip).play();
+    }
+    e.worldR = P.h * .4;
+  } else {
+    const bt = billboardTexFor(kid);
+    const w = Math.min(P.h * bt.aspect, P.h * 2.6);
+    const mat = new THREE.MeshLambertMaterial({ map: bt.tex, alphaTest: .25,
+                                                side: THREE.DoubleSide });
+    e.mesh = new THREE.Mesh(bbGeo, mat);
+    e.mesh.scale.set(w, P.h, 1);
+    e.meshYOff = 0;
+    e.eyeMat = new THREE.MeshBasicMaterial({ map: eyeTex, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      color: new THREE.Color(.7, 2.1, .5) }); // >1 green: the eyes bloom in the fog
+    const es = .16 * P.h;
+    for (const [nx, ny] of bt.eyes) {
+      const g = new THREE.Mesh(bbGeo, e.eyeMat);
+      g.position.set(nx - .5, .5 - ny, .02);
+      g.scale.set(es / w, es / P.h, 1); // undo the parent stretch: stay circular
+      e.mesh.add(g);
+    }
+    e.worldR = Math.min(w, P.h) / 2;
+  }
+  e.mesh.renderOrder = 10;
+  scene3.add(e.mesh);
+  e.blob = new THREE.Mesh(bbGeo, new THREE.MeshBasicMaterial({ map: blobTex,
+    transparent: true, depthWrite: false, opacity: .5 }));
+  e.blob.rotation.x = -Math.PI / 2;
+  e.blob.renderOrder = 1;
+  scene3.add(e.blob);
+}
+
+function spawn() {
+  const now = performance.now();
+  const kind = pickKind(now);
+  if (kind.id === 'brute') lastBrute = now;
+  const P = ENEMY3D[kind.id];
+  const e = { kind, hp: kind.hp, t: 0, phase: rand(0, 6.28), flash: 0, kick: 0,
+              x: rand(-5.5, 5.5), z: -rand(28, 36), xAim: rand(-1.6, 1.6),
+              spd: rand(P.speed[0], P.speed[1]) * speedMul,
+              baseY: P.y0, cy: P.y0, gaitY: 0, roll: 0, stomp: 0,
+              sx: -999, sy: -999, sr: 0, hittable: false };
+  dressEnemy(e);
+  enemies.push(e);
+  // each kind announces itself from the dark (groans throttled — spawns are constant)
+  if (kind.id === 'bat') playScreech();
+  else if (kind.id === 'brute') playRoar(false);
+  else if (kind.id === 'ghoul') playWhisper();
+  else if (Math.random() < .7) playGroan();
+}
+
+// irregular, broken movement — nothing bounces, everything lurches
+function updateEnemies(dt, now) {
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.t += dt;
+    if (e.flash > 0) e.flash -= dt * 3;
+    const k = e.kind.id, P = ENEMY3D[k];
+    if (!e.pin) {
+      if (e.kick) { e.x += e.kick * dt * 2.5; e.kick *= Math.pow(.02, dt); } // stagger shove
+      let fwd = e.spd;
+      if (k === 'shambler') {       // stop-start lurch with a hitch
+        fwd *= Math.pow(Math.max(0, Math.sin(e.t * 2.6 + e.phase)), 1.5) * 1.9;
+        e.roll = Math.sin(e.t * 2.2 + e.phase) * .06 + Math.sin(e.t * 7.3 + e.phase) * .015;
+        e.gaitY = Math.abs(Math.sin(e.t * 2.6 + e.phase)) * .05;
+      } else if (k === 'crawler') { // dragging pulses
+        fwd *= (.25 + .75 * Math.max(0, Math.sin(e.t * 3.2 + e.phase))) * 1.45;
+        e.roll = Math.sin(e.t * 3.2 + e.phase) * .04;
+        e.gaitY = Math.sin(e.t * 3.2 + e.phase) * .02;
+      } else if (k === 'ghoul') {   // dead-quiet drift and weave
+        e.x += Math.sin(e.t * .9 + e.phase) * 1.1 * dt;
+        e.gaitY = Math.sin(e.t * 1.3 + e.phase) * .25;
+        e.roll = Math.sin(e.t * .9 + e.phase) * .1;
+      } else if (k === 'bat') {     // fast swooping arcs
+        e.x += Math.cos(e.t * 1.6 + e.phase) * 1.8 * dt;
+        e.gaitY = Math.sin(e.t * 2.1 + e.phase) * .7;
+        e.roll = Math.cos(e.t * 2.1 + e.phase) * .3;
+      } else {                      // brute: slow stomps that shake the camera
+        const ph0 = e.stomp;
+        e.stomp += dt / .9;
+        fwd *= .35 + .65 * Math.max(0, Math.sin(e.stomp * Math.PI * 2));
+        if ((ph0 % 1) > (e.stomp % 1)) { // a foot just landed
+          const dist = Math.max(2, -e.z);
+          addShake(7 * Math.min(1, 9 / dist));
+          tone(52, 30, .18, 'sine', Math.min(.5, 4 / dist));
+          noiseBurst(.12, 'lowpass', 120, 1, Math.min(.35, 3 / dist), 0);
+        }
+        e.roll = Math.sin(e.stomp * Math.PI * 2) * .05;
+        e.gaitY = Math.abs(Math.sin(e.stomp * Math.PI * 2)) * .08;
+      }
+      e.z += fwd * dt;
+      e.x += (e.xAim - e.x) * .12 * dt; // drift into the player's lane
+      if (e.z > -1.3) { clawScare(i); continue; } // reached you — scare, no harm
+    }
+    e.cy = e.baseY + e.gaitY;
+    if (e.mixer) e.mixer.update(dt * (0.6 + 0.8 * Math.min(1, e.spd)));
+    // face the camera (boards yaw-only) or the walk direction (models)
+    const yaw = e.glb ? Math.PI : Math.atan2(camera.position.x - e.x,
+                                             camera.position.z - e.z);
+    e.mesh.position.set(e.x, e.cy + e.meshYOff, e.z);
+    e.mesh.rotation.set(0, yaw, e.roll);
+    if (e.eyeMat)
+      e.eyeMat.opacity = (.5 + .3 * Math.sin(now / 170 + e.phase)) *
+        Math.max(.25, Math.min(1, 1 - (-e.z - 20) / 12));
+    if (e.flash > 0 && e.mesh.material) { // brute stagger: white-hot emissive pulse
+      e.mesh.material.emissive.setScalar(e.flash * .9);
+    } else if (e.mesh.material && e.mesh.material.emissive) {
+      e.mesh.material.emissive.setScalar(0);
+    }
+    e.blob.position.set(e.x, .02, e.z);
+    const alt = Math.max(0, e.cy - P.y0 * .5);
+    const bs = Math.max(.4, e.worldR * 2 * Math.max(.35, 1.2 / (1 + alt)));
+    e.blob.scale.set(bs, bs * .6, 1);
+    e.blob.material.opacity = .5 * Math.max(.3, 1.2 / (1 + alt)) ;
+  }
+}
+
+// crumple + dissolve: the body folds, sinks and fades into smoke
+function beginCrumple(e) {
+  e.mesh.children.forEach(c => { c.visible = false; });
+  const mats = [];
+  e.mesh.traverse(o => { if (o.material) { o.material.transparent = true; mats.push(o.material); } });
+  corpses.push({ mesh: e.mesh, blob: e.blob, mats, t: 0,
+                 sx: e.mesh.scale.x, sy: e.mesh.scale.y,
+                 side: Math.random() < .5 ? -1 : 1, y0: e.mesh.position.y });
+  smokeBurst(e.x, e.cy, e.z, 8);
+}
+function updateCorpses(dt) {
+  for (let i = corpses.length - 1; i >= 0; i--) {
+    const c = corpses[i];
+    c.t += dt;
+    const k = Math.min(1, c.t / .38);
+    c.mesh.scale.y = c.sy * Math.max(.1, 1 - k * .9);
+    c.mesh.rotation.z = c.side * k * .55;
+    c.mesh.position.y = c.y0 * (1 - k * .7) + .12;
+    const fade = k < .55 ? 1 : 1 - (k - .55) / .45;
+    for (const m of c.mats) m.opacity = fade;
+    c.blob.material.opacity = .5 * fade;
+    if (k >= 1) {
+      scene3.remove(c.mesh, c.blob);
+      for (const m of c.mats) m.dispose();
+      c.blob.material.dispose();
+      corpses.splice(i, 1);
+    }
+  }
+}
+function despawnEnemy(i, smoke) {
+  const e = enemies[i];
+  enemies.splice(i, 1);
+  if (smoke) smokeBurst(e.x, e.cy, e.z, 10);
+  scene3.remove(e.mesh, e.blob);
+  e.mesh.traverse(o => { if (o.material && o.material.dispose) o.material.dispose(); });
+  e.blob.material.dispose();
+}
+
+// it reached you: shake, claw streaks, a roar — and the night moves on.
+// One global cooldown so a pack arriving together doesn't strobe the screen.
+function clawScare(i) {
+  despawnEnemy(i, true);
+  const now = performance.now();
+  if (now - lastScare < 1500) return;
+  lastScare = now;
+  scareCount++;
+  scareT = now;
+  addShake(13);
+  const sc = $('scare');
+  sc.classList.add('show');
+  setTimeout(() => sc.classList.remove('show'), 700);
+  playRoar(false);
+  playClaw();
+}
+
+// ---------- screen-space projection: feeds the untouched trail collision ----
+const _pv = new THREE.Vector3();
+function projectEnemies() {
+  const projK = H / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  for (const e of enemies) {
+    _pv.set(e.x, e.cy, e.z).project(camera);
+    const behind = _pv.z > 1 || _pv.z < -1;
+    e.sx = (_pv.x * .5 + .5) * W;
+    e.sy = (-_pv.y * .5 + .5) * H;
+    const dist = Math.hypot(e.x - camera.position.x, e.cy - camera.position.y,
+                            e.z - camera.position.z);
+    e.sr = Math.max((e.worldR * projK) / Math.max(dist, .5), 26); // 26px floor: deep
+    e.hittable = !behind && e.z > -22 &&                          // targets stay fair
+                 e.sx > -60 && e.sx < W + 60 && e.sy > -60 && e.sy < H + 60;
+  }
+}
+
+function slashEnemy(i, ang) {
+  const e = enemies[i], now = performance.now();
+  // a short shield after every brute hit, so one fast swipe (= many trail
+  // segments) can't chain 3 hits — including the killing blow — at once
+  if (now < (e.iv || 0)) return;
+
+  if (e.hp > 1) {
+    e.hp--;
+    e.iv = now + 420;
+    e.flash = .3;                          // white-hot stagger flash
+    e.kick = Math.cos(ang) * 1.7;          // shoved along the cut, in world x
+    addShake(4);
+    ichorBurst(e, .5);
+    playGrunt();
+    return;
+  }
+
+  enemies.splice(i, 1);
+  kills++;
+  score += e.kind.pts;
+  const el = $('score');
+  el.textContent = score;
+  el.classList.add('bump');
+  setTimeout(() => el.classList.remove('bump'), 130);
+
+  comboN = (now - comboT < 1000) ? comboN + 1 : 0;
+  comboT = now;
+  if (comboN >= 1) showCombo(comboN + 1);
+  playPop(Math.pow(1.07, Math.min(comboN, 8)));
+
+  const isBrute = e.kind.id === 'brute';
+  ichorBurst(e, isBrute ? 1.8 : 1);
+  ptext('+' + e.kind.pts, e.sx, e.sy);
+  addShake(isBrute ? 9 : 2.5);
+  beginCrumple(e); // the corpse entry now owns the mesh + blob fade-out
+  if (isBrute) {
+    bannerShow('BRUTE DOWN  +5', 1500);
+    ichorBurst({ x: e.x, cy: e.cy, z: e.z }, 2.2);
+    playRoar(true);
+  }
+  if (kills % 25 === 0 && !versus) celebrate();
+  onScoreChange(e.kind.pts);
+}
 
 // ---------- touch & mouse input (always on — works alongside hands) ----------
 canvas.addEventListener('pointerdown', e => {
@@ -2206,7 +2684,22 @@ window.__game = {
       m[k] = { aspect: +p.aspect.toFixed(3), eyes: p.eyes.map(e => e.map(v => +v.toFixed(3))) };
     return m;
   },
-  get particleCounts() { return {}; }, // M2: 3D pool counts return here
+  get particleCounts() {
+    return { add: fxAdd ? fxAdd.n : 0, smoke: fxSmoke ? fxSmoke.n : 0,
+             corpses: corpses.length };
+  },
+  get worldEnemies() {
+    return enemies.map(e => ({ kind: e.kind.id, x: +e.x.toFixed(2),
+      y: +e.cy.toFixed(2), z: +e.z.toFixed(2), hp: e.hp, glb: !!e.glb,
+      sx: Math.round(e.sx), sy: Math.round(e.sy), sr: Math.round(e.sr),
+      hittable: !!e.hittable }));
+  },
+  get scareCount() { return scareCount; },
+  get modelStatus() {
+    const m = {};
+    for (const k of Object.keys(ENEMY3D)) m[k] = glbs[k] ? 'model' : 'billboard';
+    return m;
+  },
   get camOn() { return camOn; },
   get handsStatus() { return handsStatus; },
   get audio() { return { state: AC ? AC.state : null,
@@ -2225,6 +2718,12 @@ window.__game = {
   // starves the loop mid-test; this pumps the REAL detectHands instead)
   pump(n) {
     for (let i = 0; i < (n || 1); i++) { lastDet = 0; detectHands(performance.now()); }
+  },
+  // drive the REAL simulation forward synchronously (headless RAF throttling
+  // starves the loop mid-test; one call = one update step of `ms` game time)
+  tick(ms) {
+    update((ms || 16) / 1000, performance.now());
+    projectEnemies();
   },
   get room() { return room && { code: room.code, peers: [...room.peers.keys()], connected: room.client.connected }; },
   get versus() { return versus && { st: versus.st, a: versus.a, r: versus.r, w: [...versus.w],
@@ -2250,10 +2749,30 @@ window.__game = {
   setStormIn(ms) { nextStorm = performance.now() + ms; },
   get flashLevel() { return flash; },
   get nextStormIn() { return nextStorm ? nextStorm - performance.now() : null; },
-  // M2 reinstates these against the 3D world (screen coords -> pinned world pos)
-  spawnAt() { return null; },
-  spawnType() { return null; },
-  sliceAll() {},
+  // tests aim by SCREEN coords: the enemy is pinned on the camera ray
+  // through (sx, sy) at 8m, so its projected center lands exactly there
+  spawnType(id, sx, sy) {
+    const kind = KINDS.find(k => k.id === id);
+    if (!kind) return null;
+    const dir = new THREE.Vector3((sx / W) * 2 - 1, -(sy / H) * 2 + 1, .5)
+      .unproject(camera).sub(camera.position).normalize();
+    const p = camera.position.clone()
+      .add(dir.multiplyScalar(Math.abs(8 / dir.z)));
+    const e = { kind, hp: kind.hp, t: 0, phase: 0, flash: 0, kick: 0,
+                x: p.x, z: p.z, xAim: p.x, spd: 0, pin: true,
+                baseY: p.y, cy: p.y, gaitY: 0, roll: 0, stomp: 0,
+                sx, sy, sr: 0, hittable: true };
+    dressEnemy(e);
+    e.mesh.position.set(e.x, e.cy, e.z);
+    enemies.push(e);
+    projectEnemies(); // fresh sx/sy/sr immediately, RAF or not
+    return e;
+  },
+  spawnAt(sx, sy) { return this.spawnType(KINDS[0].id, sx, sy); },
+  clearEnemies() { while (enemies.length) despawnEnemy(0, false); },
+  sliceAll() {
+    while (enemies.length) { enemies[0].hp = 1; enemies[0].iv = 0; slashEnemy(0, 0); }
+  },
   get fps() { return Math.round(__fps); },
   get degradeStep() { return degradeStep; },
   setDegrade,
@@ -2280,6 +2799,7 @@ window.__game = {
 // invoked last so every function and binding above already exists; the
 // head watchdog flips the classic-mode escape hatch if we never get here
 initWorld();
+initFx();
 requestAnimationFrame(loop);
 window.__threeBooted = true;
 clearTimeout(window.__bootWatch);
