@@ -784,7 +784,7 @@ function playCheer() {
 
 // ---------- game state ----------
 let enemies = [];
-let score = 0, kills = 0, running = false, nextSpawn = 0, MAXF = 8;
+let score = 0, kills = 0, running = false, nextSpawn = 0, MAXF = 4;
 
 /* ---------- the horde: five enemy kinds (data) ----------
    hp / pts / spawn weight are the proven 2D values. How each kind looks
@@ -1009,13 +1009,67 @@ function celebrate() { // every 25 kills: a private lightning storm
   setTimeout(playHowl, 520);
 }
 
+/* ---------- the wave director (solo only) ----------
+   Horror pacing instead of a metronome: a LULL where nothing comes but
+   the dark talks to you (panned groans and shuffles), then a CLUSTER
+   pushes in together down one lane, then CLEARING while you finish
+   them, then a beat of QUIET that is not comfort — then again, a
+   little harder. Wall clock throughout: dread doesn't slow down
+   because the world did. Score still climbs forever — lulls shrink
+   as kills mount, clusters grow. */
+let dir = { st: 'lull', t0: 0, dur: 2000, next: 0, left: 0, lane: 0 };
+function director(now) {
+  if (!dir.t0) dir.t0 = now; // first call of a run
+  const since = now - dir.t0;
+  if (dir.st === 'lull') {
+    if (now > dir.next) {
+      dir.next = now + rand(1400, 3200);
+      const pan = rand(-.8, .8);
+      if (Math.random() < .55) playGroan(pan, rand(16, 28));
+      else playShuffle(pan);
+    }
+    if (since > dir.dur) {
+      dir.st = 'cluster';
+      dir.t0 = now;
+      dir.left = 2 + Math.min(2, Math.floor(kills / 15));
+      dir.lane = rand(-3, 3);
+      dir.next = now; // the first one steps out immediately
+    }
+  } else if (dir.st === 'cluster') {
+    if (dir.left > 0 && now > dir.next && enemies.length < MAXF) {
+      spawn(dir.lane);
+      dir.left--;
+      dir.next = now + rand(900, 1600) / speedMul;
+    }
+    if (dir.left <= 0) { dir.st = 'clearing'; dir.t0 = now; }
+  } else if (dir.st === 'clearing') {
+    if (!enemies.length || since > 25000) {
+      dir.st = 'quiet';
+      dir.t0 = now;
+      dir.dur = rand(2500, 4000);
+      playLullStinger();
+    }
+  } else { // quiet — breathe. it isn't over.
+    if (since > dir.dur) {
+      dir.st = 'lull';
+      dir.t0 = now;
+      dir.dur = Math.max(3500, 9000 - kills * 50);
+      dir.next = now + rand(600, 1400);
+    }
+  }
+}
+
 // ---------- physics + drawing ----------
 function update(dt, now) {
-  // in a Versus match, things only come out of the fog during YOUR turn
-  const maySpawn = !versus || versus.playing;
-  if (maySpawn && now > nextSpawn && enemies.length < MAXF) {
-    spawn();
-    nextSpawn = now + rand(1400, 2200) / speedMul;
+  if (versus) {
+    // Versus keeps the legacy cadence VERBATIM: both ends of a room must
+    // see the same economy even if the other side runs an older build
+    if (versus.playing && now > nextSpawn && enemies.length < MAXF) {
+      spawn();
+      nextSpawn = now + rand(1400, 2200) / speedMul;
+    }
+  } else {
+    director(now);
   }
   updateEnemies(dt, now);
   updateCorpses(dt);
@@ -1336,7 +1390,7 @@ const DEGRADE = [
   () => { gradePass.uniforms.uGrain.value = 0; },
   () => { PARTICLE_K = .5; },
   () => { renderer.setPixelRatio(1); composer.setSize(W, H); },
-  () => { MAXF = 5; },
+  () => { MAXF = 3; },
 ];
 function setDegrade(n) {
   while (degradeStep < Math.min(n, DEGRADE.length)) DEGRADE[degradeStep++]();
@@ -1794,13 +1848,17 @@ function dressEnemy(e) {
   scene3.add(e.blob);
 }
 
-function spawn() {
+function spawn(lane) {
   const now = performance.now();
   const kind = pickKind(now);
   if (kind.id === 'brute') lastBrute = now;
   const P = ENEMY3D[kind.id];
+  // a director lane makes a cluster PUSH IN together instead of scattering
   const e = { kind, hp: kind.hp, t: 0, phase: rand(0, 6.28), flash: 0, kick: 0,
-              x: rand(-5.5, 5.5), z: -rand(22, 30), xAim: rand(-1.6, 1.6),
+              x: lane !== undefined ? lane + rand(-1.8, 1.8) : rand(-5.5, 5.5),
+              z: -rand(22, 30),
+              xAim: lane !== undefined ? lane * .4 + rand(-1.2, 1.2)
+                                       : rand(-1.6, 1.6),
               spd: rand(P.speed[0], P.speed[1]) * speedMul,
               baseY: P.y0, cy: P.y0, gaitY: 0, roll: 0, stomp: 0,
               sx: -999, sy: -999, sr: 0, hittable: false };
@@ -2424,7 +2482,9 @@ function startGame() {
   $('start').classList.add('hidden');
   $('gear').style.display = 'block';
   running = true;
-  nextSpawn = performance.now() + 1500; // the first thing crawls out shortly
+  nextSpawn = performance.now() + 1500; // versus cadence: first spawn shortly
+  // a fresh run opens on a SHORT lull — kids shouldn't wait 9s for monsters
+  dir = { st: 'lull', t0: performance.now(), dur: 2000, next: 0, left: 0, lane: 0 };
   showChip('SLASH WHAT COMES OUT OF THE FOG', 2500);
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 }
@@ -3346,6 +3406,17 @@ window.__game = {
   clearEnemies() { while (enemies.length) despawnEnemy(0, false); },
   sliceAll() {
     while (enemies.length) { enemies[0].hp = 1; enemies[0].iv = 0; slashEnemy(0, 0); }
+  },
+  get director() {
+    return { st: dir.st, sinceMs: Math.round(performance.now() - dir.t0),
+             clusterLeft: dir.left, lane: +dir.lane.toFixed(2), maxf: MAXF };
+  },
+  forceWave(st) {
+    dir.st = st;
+    dir.t0 = performance.now();
+    dir.next = 0;
+    if (st === 'cluster') { dir.left = 2 + Math.min(2, Math.floor(kills / 15)); dir.lane = 0; }
+    if (st === 'quiet' || st === 'lull') dir.dur = 3000;
   },
   get fps() { return Math.round(__fps); },
   get degradeStep() { return degradeStep; },
