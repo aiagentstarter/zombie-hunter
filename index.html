@@ -262,10 +262,11 @@
   <a id="classicLink" href="classic.html" style="color:#9db; font-size:13px; opacity:.75;">Classic 2D mode</a>
 </div>
 
-<script>
+<script type="module">
 /* =====================================================================
    🧟 ZOMBIE HUNTER — a no-lose horde-slashing game (Fruit Party engine,
    reskinned). No lives, no game over: the night just keeps coming.
+   Module script: same code, strict mode — the 3D rebuild lands here.
    ===================================================================== */
 
 // ---------- tiny helpers ----------
@@ -2802,6 +2803,14 @@ window.__game = {
   get handSeen() { return performance.now() - lastHandSeen < 1000; },
   get pill() { return { text: $('pill').textContent, cls: $('pill').className }; },
   get markers() { return handSmooth.size; },
+  // detection internals for the test harness
+  get detectState() { return { fed: fedFrames.length, lastDet, detEvery,
+    handsOK, rebuilding, targets: handTargets.length, camReady: cam.readyState }; },
+  // drive N detection ticks synchronously (headless pages throttle RAF, which
+  // starves the loop mid-test; this pumps the REAL detectHands instead)
+  pump(n) {
+    for (let i = 0; i < (n || 1); i++) { lastDet = 0; detectHands(performance.now()); }
+  },
   get room() { return room && { code: room.code, peers: [...room.peers.keys()], connected: room.client.connected }; },
   get versus() { return versus && { st: versus.st, a: versus.a, r: versus.r, w: [...versus.w],
     ts: versus.ts && [...versus.ts], fin: versus.fin, myIdx: versus.myIdx,
