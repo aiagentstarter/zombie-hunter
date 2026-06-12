@@ -39,9 +39,13 @@ BIG_MB = 4.0
 
 
 def classify(name):
+    """First matching rule wins — RULES order puts the specific words
+    (crawl, mutant) before the generic ones (zombie, walk)."""
     low = name.lower()
-    hits = [kind for kind, pat in RULES if re.search(pat, low)]
-    return hits
+    for kind, pat in RULES:
+        if re.search(pat, low):
+            return [kind]
+    return []
 
 
 def find_blender():
@@ -53,10 +57,25 @@ def find_blender():
 
 
 def convert_npx(src, dst):
-    """fbx2gltf ships platform binaries through npm — one command, no install."""
-    r = subprocess.run(['npx', '-y', 'fbx2gltf', '-b', '-i', src, '-o', dst],
-                       capture_output=True, text=True, timeout=300)
-    return os.path.exists(dst) and os.path.getsize(dst) > 10000, r.stderr[-400:]
+    """The fbx2gltf npm package has NO bin entry — it's a Node API wrapping
+    platform binaries. Install it once into tools/_fbxconv and call the API."""
+    prefix = os.path.join(os.path.dirname(__file__), '_fbxconv')
+    pkg = os.path.join(prefix, 'node_modules', 'fbx2gltf')
+    if not os.path.isdir(pkg):
+        print('  (one-time: installing fbx2gltf into tools/_fbxconv ...)')
+        r = subprocess.run(['npm', 'install', 'fbx2gltf', '--prefix', prefix,
+                            '--no-fund', '--no-audit', '--loglevel=error'],
+                           capture_output=True, text=True, timeout=600)
+        if not os.path.isdir(pkg):
+            return False, 'npm install failed: ' + (r.stderr or r.stdout)[-300:]
+    script = ('const c=require("fbx2gltf");'
+              'c(process.argv[1],process.argv[2],["--binary"])'
+              '.then(d=>{console.log("OK",d);process.exit(0);})'
+              '.catch(e=>{console.error(String(e));process.exit(1);});')
+    r = subprocess.run(['node', '-e', script, src, dst],
+                       cwd=prefix, capture_output=True, text=True, timeout=600,
+                       env={**os.environ, 'NODE_PATH': os.path.join(prefix, 'node_modules')})
+    return os.path.exists(dst) and os.path.getsize(dst) > 10000, (r.stderr or r.stdout)[-400:]
 
 
 def convert_blender(src, dst, blender):
@@ -66,6 +85,31 @@ def convert_blender(src, dst, blender):
     r = subprocess.run([blender, '-b', '--python-expr', expr],
                        capture_output=True, text=True, timeout=600)
     return os.path.exists(dst) and os.path.getsize(dst) > 10000, r.stderr[-400:]
+
+
+def optimize(dst, mb_before):
+    """Mixamo embeds multi-MB textures. Shrink them to 1024px WebP and prune
+    unused data — decoder-free (no Draco/meshopt), so the game needs nothing.
+    Falls back to the unoptimized file if gltf-transform is unavailable."""
+    tmp = dst + '.opt.glb'
+    try:
+        r = subprocess.run(['npx', '-y', '@gltf-transform/cli', 'optimize', dst, tmp,
+                            '--compress', 'false', '--texture-compress', 'webp',
+                            '--texture-size', '1024', '--simplify', 'false'],
+                           capture_output=True, text=True, timeout=600)
+        if os.path.exists(tmp) and os.path.getsize(tmp) > 10000:
+            os.replace(tmp, dst)
+            mb = os.path.getsize(dst) / 1e6
+            print(f'      optimized {mb_before:.1f} MB -> {mb:.1f} MB '
+                  '(1024px webp textures, pruned)')
+            return mb
+        print('      optimize skipped: ' + (r.stderr or r.stdout)[-200:].strip())
+    except Exception as e:
+        print(f'      optimize skipped: {e}')
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return mb_before
 
 
 def main():
@@ -118,8 +162,11 @@ def main():
                 err = str(e)
         if ok:
             mb = os.path.getsize(dst) / 1e6
-            flag = '  ** larger than 4MB — consider a lighter character' if mb > BIG_MB else ''
-            print(f'  ok  {os.path.basename(src)} -> models/{kind}.glb ({mb:.1f} MB){flag}')
+            print(f'  ok  {os.path.basename(src)} -> models/{kind}.glb ({mb:.1f} MB)')
+            mb = optimize(dst, mb)
+            flag = '  ** still larger than 4MB — consider a lighter character' if mb > BIG_MB else ''
+            if flag:
+                print(flag)
             done[kind] = mb
         else:
             print(f'  FAIL {os.path.basename(src)} -> {kind}: {err.strip() or "no converter available"}')

@@ -1392,6 +1392,18 @@ function dressEnemy(e) {
       e.mixer = new THREE.AnimationMixer(e.mesh);
       e.mixer.clipAction(clip).play();
     }
+    // models get the same fog-piercing eyes as billboards — two additive
+    // glow sprites pinned at head height (heuristic: faces aren't mapped)
+    e.eyeMat = new THREE.SpriteMaterial({ map: eyeTex, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      color: new THREE.Color(.7, 2.1, .5) });
+    const rawH = tpl.userData.rawH, headY = tpl.userData.rawMinY + rawH * .92;
+    for (const sx of [-1, 1]) {
+      const s = new THREE.Sprite(e.eyeMat);
+      s.position.set(sx * rawH * .032, headY, rawH * .05);
+      s.scale.setScalar(rawH * .09);
+      e.mesh.add(s);
+    }
     e.worldR = P.h * .4;
   } else {
     const bt = billboardTexFor(kid);
@@ -1486,9 +1498,12 @@ function updateEnemies(dt, now) {
     }
     e.cy = e.baseY + e.gaitY;
     if (e.mixer) e.mixer.update(dt * (0.6 + 0.8 * Math.min(1, e.spd)));
-    // face the camera (boards yaw-only) or the walk direction (models)
-    const yaw = e.glb ? Math.PI : Math.atan2(camera.position.x - e.x,
-                                             camera.position.z - e.z);
+    // face the camera (boards yaw-only) or the walk direction (models:
+    // Mixamo rigs face +Z, and they advance toward +z — yaw 0 plus a small
+    // steer toward the lane they're drifting into)
+    const yaw = e.glb ? Math.atan2((e.xAim - e.x) * .25, 1)
+                      : Math.atan2(camera.position.x - e.x,
+                                   camera.position.z - e.z);
     e.mesh.position.set(e.x, e.cy + e.meshYOff, e.z);
     e.mesh.rotation.set(0, yaw, e.roll);
     if (e.eyeMat)
