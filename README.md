@@ -1,10 +1,16 @@
-# 🍉 Fruit Party!
+# 🧟 Zombie Hunter — *Survive the night*
 
-A Fruit Ninja–style browser game for little kids. Fruit floats up slowly, you slice it by
-**waving your hand at the camera** (or just touching the screen). No bombs, no lives, no
-game over — a 2-year-old waves and fruit explodes. Big celebration every 10 fruits.
+A dark, stylized horde-slashing game built on the Fruit Party engine. Zombies climb out of
+the ground, crawl, float, and swoop through a ruined moonlit city — you slash them by
+**waving your hand at the camera** (or just swiping the screen). Glowing **green ichor**,
+never gore. No lives, no game over: the score climbs forever, lightning storms roll
+through, and every 25 kills the night celebrates you with a wolf howl.
 
-Everything is one file: [index.html](index.html). No build step, no install, no server code.
+Everything is one file plus one image: [index.html](index.html) and `poster.png`
+(the title-screen art). No build step, no install, no server code.
+
+**🎉 Silly mode** flips the whole game into a bright purple-and-orange Halloween party
+for little kids — same enemies, goofy smiles, confetti goo, giggles instead of groans.
 
 ---
 
@@ -12,31 +18,38 @@ Everything is one file: [index.html](index.html). No build step, no install, no 
 
 The camera **requires HTTPS**, which GitHub Pages gives you automatically.
 
-1. Go to <https://github.com/new>. Repository name: `fruit-party`. Keep it **Public**. Click **Create repository**.
-2. On the new repo page, click **uploading an existing file**, drag `index.html` in, click **Commit changes**.
-   *(Or from this folder: `git remote add origin https://github.com/YOURNAME/fruit-party.git && git push -u origin main`)*
-3. In the repo: **Settings → Pages** (left sidebar). Under **Branch** pick `main`, folder `/ (root)`, click **Save**.
+1. Go to <https://github.com/new>. Repository name: `zombie-hunter`. Keep it **Public**.
+   Click **Create repository**.
+2. On the new repo page, click **uploading an existing file**, drag **both**
+   `index.html` **and `poster.png`** in, click **Commit changes**.
+   ⚠️ The poster must sit **next to index.html** (same folder) — it's the title-screen
+   background. If it's missing the game still runs, with a plain dark gradient instead.
+   *(Or from this folder: `git remote add origin https://github.com/YOURNAME/zombie-hunter.git && git push -u origin main`)*
+3. In the repo: **Settings → Pages** (left sidebar). Under **Branch** pick `main`,
+   folder `/ (root)`, click **Save**.
 4. Wait 1–2 minutes. Your game is at:
-   **`https://YOURNAME.github.io/fruit-party/`**
+   **`https://YOURNAME.github.io/zombie-hunter/`**
 
-Any other static host (Netlify Drop, Cloudflare Pages, Vercel) works the same — drop the
-file in, get an HTTPS URL.
+Any other static host (Netlify Drop, Cloudflare Pages, Vercel) works the same — drop
+**both files** in, get an HTTPS URL.
 
 ## Open it on the iPad
 
-1. Open **Safari** and go to your `https://...github.io/fruit-party/` URL.
-2. Tap **📷 Start (with camera)** → tap **Allow** when Safari asks for the camera.
+1. Open **Safari** and go to your `https://...github.io/zombie-hunter/` URL.
+2. Tap **🌙 Start** → tap **Allow** when Safari asks for the camera.
 3. Wave! (Optional: Share button → **Add to Home Screen** makes a full-screen app icon.)
 
 First load needs internet (the hand-tracking model, ~8 MB, comes from a CDN — it's cached
-after that). Sound starts after the first tap — that's an iOS rule, the Start button counts.
+after that; the Creepster title font is also a CDN fetch). Sound starts after the first
+tap — that's an iOS rule; touching the title screen starts the heartbeat, the Start
+button counts too.
 
 ### The colored pill (bottom-left) tells you what the camera sees
 
 | Pill | Meaning |
 |---|---|
 | 🟢 **✋ I see your hand!** | Tracking is working — a glowing dot follows your fingertip. |
-| 🟡 **👋 Show me your hand** | Tracking is fine, but your hand isn't in the picture. Usually it's resting on the mouse/table, below the camera's view. Step back or lift your hand. |
+| 🟡 **👋 Show me your hand** | Tracking is fine, but your hand isn't in the picture. Usually it's resting below the camera's view. Step back or lift your hand. |
 | ⚪ **👆 Touch mode** | Hand tracking is off (couldn't load, or this device is too slow) — touching the screen always works. |
 
 If no hand is seen for a while, the game says it outright: *"Step back so the
@@ -46,58 +59,72 @@ camera can see your hand!"*
 
 | Symptom | Fix |
 |---|---|
-| Pill stays yellow | Your hand is out of frame — camera probably sees only your head and shoulders. Step back, or angle the camera down, then wave at chest height. |
+| Pill stays yellow | Your hand is out of frame — the camera probably sees only your head. Step back, or angle the camera down, then wave at chest height. |
 | Camera prompt never appears / always denied | iPad **Settings → Apps → Safari → Camera → Ask/Allow**, then reload. Or in Safari tap **aA → Website Settings → Camera → Allow**. |
 | "Camera needs a secure (https) page" | You opened it via `http://` or a file. Use the GitHub Pages `https://` URL. |
-| No sound | Tap the screen once (any tap restarts the audio engine) and check the volume. The ringer/silent switch does **not** mute the game after the first tap — like a real game, it claims the speaker (which may pause background music). ⚙️ shows a live "Audio engine: …" line so you can see what it's doing. |
+| No sound | Tap the screen once (any tap restarts the audio engine) and check the volume. The ringer/silent switch does **not** mute the game after the first tap. ⚙️ shows a live "Audio engine: …" line so you can see what it's doing. |
 | Hands feel laggy | The game lowers its own tracking rate first, then rebuilds the tracker in a compatible mode, and only then switches to touch — the pill always shows where it landed. |
+| Title screen has no poster | `poster.png` isn't next to `index.html` on your host — upload it (any portrait-ish dark art works; the UI is layered on top). |
 
 ## Desktop
 
-Chrome, Safari, or Edge — same URL. Mouse slices just by moving (no clicking needed).
+Chrome, Safari, or Edge — same URL. The mouse slashes just by moving (no clicking).
 For local development: `python3 -m http.server 8000` in this folder, then
-<http://localhost:8000> (`localhost` is allowed to use the camera without HTTPS).
+<http://localhost:8000> (`localhost` may use the camera without HTTPS).
 
-## Playing together on a video call (optional)
+## 🎉 Silly mode (for the 2- and 4-year-old)
 
-Tap **⚙️ → Play together**: both devices enter a nickname and the **same room code**, tap
-**Join room**. Each player's name and live score appears top-left on both screens.
+Toggle it on the title screen (**👻 Silly mode**) or in ⚙️ settings. Everything flips
+to a bright purple/orange Halloween party:
+
+- the same five enemies redraw as goofy cartoons with big googly eyes and derpy grins
+- ichor becomes **confetti goo**, groans become **giggles and boings**
+- thunder goes soft and the scary lightning silhouettes stay hidden
+- the title screen swaps the poster for a friendly cartoon scene (smiling moon included)
+
+The choice is remembered on the device. **In a room it syncs**: whoever toggles last
+wins, on every device — so both Versus players always see the same version.
+
+## Hunting together (live scoreboard)
+
+Tap **⚙️ → Hunt together**: both devices enter a nickname and the **same room code**
+(spooky word combos like `GRAVEYARD-BAT-13` — tap ↻ for a fresh one), tap **Join room**.
+Each player's name and live score appears top-left on both screens.
 
 How it works, honestly: scores travel through a **free public MQTT relay**
 (broker.emqx.io, with two fallbacks) over secure WebSockets — no account and no server,
 but it's shared public infrastructure:
 
-- Only the room code, nickname, and score are ever sent. Use first names or nicknames.
-- Pick a **unique silly code** (`BANANA-MOON-42`), since anyone using the same code lands
-  in the same room.
+- Only the room code, nickname, score, and the Silly-mode flag are ever sent. Use
+  nicknames.
+- Pick a **unique code**, since anyone using the same code lands in the same room.
 - If the relay is down, the game says so and plays on solo — multiplayer can never break
   the game. If the relay quietly drops the connection mid-game, the room rebuilds it by
   itself within a few seconds.
-- To remove the feature entirely, set `ROOM_ENABLED = false` near the bottom of
+- To remove the feature entirely, set `ROOM_ENABLED = false` in
   [index.html](index.html).
 
 ## Seeing each other (live video)
 
-Join the same room on both devices and video simply appears — the other player shows up
+Join the same room on both devices and video simply appears — the other hunter shows up
 in a small rounded picture-in-picture in the corner, with their name. You can talk too
 (each device asks for the microphone; the 🎤 button on the picture mutes you).
 
 - **Tap** the little picture to swap who's big. **Drag** it to any corner.
 - **In Versus mode it gets good**: while it's the other player's turn, their live video
   fills your screen behind their name and climbing score — you're watching your kid
-  play. On your turn they shrink back to the corner.
+  hunt. On your turn they shrink back to the corner.
 - A "🔴 you're on camera" badge shows whenever your video is being sent. Leaving the
   room closes the connection immediately and releases the microphone.
 
 **Privacy, plainly:** the video and voice travel **directly between your two devices**,
 encrypted end-to-end by WebRTC — they are never sent through any server. The public
-relay only carries the small "let's connect" notes (a few KB of connection setup). New
-room codes are now generated as random word combos like `banana-rocket-42` (tap ↻ for a
-new one) because guessable codes matter more with video; a room only ever video-connects
-its **first two** members — anyone else gets a polite "video is full" and just shares
-scores. If video can't connect within 20 seconds (some strict networks need a TURN
-server, which this setup deliberately doesn't require), you get a friendly note and
-everything else — game, Versus, scores — works exactly as before.
+relay only carries the small "let's connect" notes (a few KB of connection setup).
+A room only ever video-connects its **first two** members — anyone else gets a polite
+"video is full" and just shares scores. If video can't connect within 20 seconds (some
+strict networks need a TURN server, which this setup deliberately doesn't require), you
+get a friendly note and everything else — game, Versus, scores — works exactly as
+before. A TURN slot sits at the top of the file (`RTC_CFG`) if you ever need one.
 
 ## Playing Versus mode (take turns, best of 3)
 
@@ -107,11 +134,13 @@ Made for a parent on one device and a kid (with a helper) on the other:
 2. On **one** device, open ⚙️ and tap **⚔️ Versus — take turns!**. That's the last
    button anyone needs to press.
 3. From here it runs itself: the device that tapped goes first — big **"YOUR TURN!"**,
-   a 3-2-1 countdown, then 30 seconds of slicing while a time bar shrinks across the top.
-   The other device watches that player's name and score climb in giant letters.
-4. Turns flip automatically. A round = one turn each; whoever slices more gets a ⭐
-   (a tie gives one to each). Three rounds, most stars wins, and **both** screens get a
-   confetti party — the other player sees a "Great game!" message, never a "you lost."
+   a 3-2-1 countdown, **"HUNT! 🧟"**, then 30 seconds of slashing while a glowing time
+   bar shrinks across the top. The other device watches that player's name and score
+   climb in giant letters.
+4. Turns flip automatically. A round = one turn each; whoever scores more gets a ⭐
+   (a tie gives one to each — and brutes count their full +5). Three rounds, most stars
+   wins, and **both** screens celebrate — the other player sees a "Great game!"
+   message, never a "you lost."
 5. If someone's device drops out mid-round, the other screen shows
    *"💤 Waiting for …"* — the round restarts when they return, and after a minute the
    game gives up gracefully and goes back to free play.
@@ -121,118 +150,124 @@ the room, the match pairs the tapper with the first other player; everyone else 
 
 ## Settings
 
-⚙️ gear → one slider: **fruit speed** (🐢…🐇), saved on the device. Default is toddler-slow.
+⚙️ gear → **zombie speed** slider (🐢…🐇, saved on the device, default toddler-slow) and
+the **Silly mode** checkbox.
 
 ## How the code works (quick tour)
 
 All in [index.html](index.html), top to bottom:
 
-- **Sounds** — synthesized with WebAudio (no audio files): pop = pitch-drop square wave +
-  filtered noise burst; quick combos pitch up; cheer = little arpeggio.
-- **Fruit** — emoji drawn on a canvas (≥120 px). Each fruit picks where its arc should
-  peak and how long it should take, and launch speed/gravity are derived from that, so
-  the speed slider scales everything consistently.
-- **Slicing / collision** — every input (each finger, mouse, each tracked hand) keeps a
-  ~0.3 s trail of points. A fruit pops when the **segment between the last two points**
-  passes within its radius (so fast swipes can't tunnel through), *or* when the newest
-  point rests inside it (so a toddler holding a finger still pops fruit drifting by).
-- **Hand tracking** — MediaPipe HandLandmarker (tasks-vision, pinned CDN version) watches
-  the 640×480 selfie video and reports 21 landmarks per hand; we use #8, the index
-  fingertip. Detection runs at ~15 Hz, and the blade glides toward the newest fingertip
-  every frame, so the trail stays smooth between detections. Coordinates are mapped
-  through the same object-fit:cover math the video uses, with X flipped for mirroring.
-  A glowing dot marks every detected fingertip, and the status pill reports live whether
-  a hand is currently seen.
-- **Fallback ladder** — camera denied → gradient background + touch; load fails → one
-  retry after 5 s; a detection exception retries 3× then rebuilds the tracker on the CPU
-  delegate before giving up; detection averaging too slow → halves its rate, then
-  rebuilds on CPU, then touch. Every step is visible in the pill — nothing fails
-  silently, and touch/mouse slicing is always on.
+- **Sounds** — synthesized with WebAudio, no audio files. One shared `noiseBurst()`
+  (decaying noise through a filter) powers the wet slash-splat, the brute's rasp, and
+  the rolling thunder; oscillator ramps make the groans, bat screech, brute roar, wolf
+  howl, title heartbeat — and the giggles/boings of Silly mode. Quick combos pitch the
+  splat up. The iOS audio plumbing (playback session, interrupted-state recovery,
+  silent-loop ringer bypass, resume-on-any-tap) is inherited from Fruit Party untouched.
+- **Enemies** — five kinds, each painted once into an offscreen sprite canvas (2×, so
+  retina stays crisp) and stamped every frame, with pulsing glow drawn over the baked
+  eyes. The shambler and the 3-hit brute rise from below on a derived arc
+  (vy = -2h/T, g = 2h/T²); the crawler drags across the ground; the ghoul floats up on
+  a sine wobble; the bat swoops through. The brute staggers on each hit behind a 420 ms
+  shield (so one fast swipe can't chain all three hits), then bursts for +5.
+- **Slashing / collision** — every input (each finger, mouse, each tracked hand) keeps
+  a ~0.3 s trail. An enemy dies when the **segment between the last two points** passes
+  within its radius (fast swipes can't tunnel), *or* when the newest point rests inside
+  it (a toddler holding a finger still kills zombies drifting by). Kills within 1 s
+  chain a combo (x2, x3 … callout + rising pitch).
+- **The night** — scenery is cached in offscreen layers rebuilt on resize: green tint +
+  vignette (also drawn over the camera feed), the moon and its halo, two ruined
+  skylines, fog puffs, cloud streaks. Per frame only the cheap animated bits run:
+  flickering windows, drifting fog, rising embers. Lightning is a double-blink envelope
+  with thunder behind it; for one second per strike a pre-painted horde stands revealed
+  in the skyline (hidden in Silly mode). A storm rolls through every 30–60 s, and every
+  25 kills triggers a triple-strike celebration with a wolf howl.
+- **Hand tracking** — MediaPipe HandLandmarker (tasks-vision, pinned CDN version)
+  watches the 640×480 selfie video and reports 21 landmarks per hand; we use #8, the
+  index fingertip. Detection runs at ~15 Hz, the blade glides toward the newest
+  fingertip every frame. Coordinates map through the same object-fit:cover math the
+  video uses, X flipped for mirroring. The status pill reports live whether a hand is
+  seen.
+- **Fallback ladder** — camera denied → dark gradient + touch; load fails → one retry;
+  a detection exception retries 3× then rebuilds the tracker on the CPU delegate before
+  giving up; detection averaging too slow → halves its rate, then rebuilds on CPU, then
+  touch. Nothing fails silently, and touch/mouse slashing is always on.
+- **Silly mode** — one flag swaps: a `body.silly` CSS palette, per-kind purple/orange
+  sprite repaints (`cute` branch in each painter: googly eyes + grins), party-colored
+  scenery, confetti-goo ichor, giggle/boing voices, soft thunder, no horde, and a
+  cartoon canvas title. Synced through the room as a tiny retained `_mode` message —
+  newest change wins everywhere.
 - **Versus mode** — one retained ~200-byte JSON state on the room's `_versus` topic.
   Each device is authoritative only while it acts (its own countdown and turn), so no
-  clock sync is needed and a second of relay lag is harmless; sequence numbers drop
-  stale states, and presence staleness drives the "waiting for…" recovery.
-- **Live video** — WebRTC peer-to-peer with "perfect negotiation" (the greater client id
-  is the polite peer), signaled over the room's `_rtc` subtopic. The call reuses the same
-  camera stream the hand tracker reads (the camera is never opened twice) plus a mic
-  requested with echo cancellation. Outgoing video is capped at ~480×360 / 15 fps /
-  400 kbps so gameplay stays smooth; hand detection pauses while you're just watching.
-  Recovery ladder: ICE restart on drops, full renegotiation when the partner's page
-  reloads (fresh session id), and a 10s stuck-detector. STUN only (Google); a TURN slot
-  sits at the top of the file (`RTC_CFG`) — the old free Open Relay TURN was probed dead
-  on 2026-06-11 and deliberately left out.
-- **Auto quality** — if fps sags, the canvas renders at a lower resolution and the fruit
-  cap drops before anything else suffers.
+  clock sync is needed; sequence numbers drop stale states, presence staleness drives
+  the "waiting for…" recovery. Turn scores count points (a brute is +5), not just
+  slashes.
+- **Live video** — WebRTC peer-to-peer with "perfect negotiation," signaled over the
+  room's `_rtc` subtopic; the call reuses the same camera stream the hand tracker
+  reads. Outgoing video is capped (~480×360 / 15 fps / 400 kbps) so gameplay stays
+  smooth; recovery ladder: ICE restart, full renegotiation on partner reload, 10 s
+  stuck-detector.
+- **Auto quality** — if fps sags, the canvas renders at a lower resolution and the
+  enemy cap drops before anything else suffers.
 
 ## Milestone test log
 
-Tested in a desktop browser preview (Chromium). **Not yet run on a physical iPad — do the
-2-minute checklist below before game time.**
+Tested in a desktop browser preview (Chromium). **Not yet run on a physical iPad — do
+the 2-minute checklist below before game time.**
 
-- **M1 touch game**: synthetic swipe slices fruit (score increments); resting-point slice
-  works; celebration banner at every 10; speed slider updates + persists; portrait resize
-  correct; no console errors.
-- **M2 hand tracking**: permission-denial path shows friendly message and keeps playing;
-  with a fake camera stream MediaPipe loads from CDN, reaches "wave your hand" state, and
-  stays healthy; coordinate mapping verified (camera center → screen center, mirror
-  correct); under artificially slow software-GL the perf guard correctly self-disabled to
-  touch. Real-hand-in-real-camera verified only by the math + pipeline, not a human hand.
-- **M3 polish**: praise banner text, spawn boop, particle cap under rapid slicing.
-- **M4 room**: joined a real public relay from the preview; second client appeared on the
-  board with name + score; peer received local score updates; leave cleared everything;
-  failure path falls back to a friendly message by construction.
-
-### Update 2 (hand feedback + Versus) test log
-
-- **Hand-motion slicing**: a synthetic fingertip sweep was fed through the *real*
-  detection pipeline (camera-coordinate mapping → smoothing → trail → collision) at the
-  real 15 Hz cadence and sliced a fruit parked mid-screen. Marker and green/yellow pill
-  transitions observed live; the 10-second "step back" hint fired.
-- **Recoverable failures**: two transient detection exceptions were absorbed (tracking
-  survived); a permanent failure disabled tracking *with* the pill flipping to Touch
-  mode while the game played on; the slow-GPU path live-rebuilt the tracker on the CPU
-  delegate and came back green.
-- **Versus, against the real public relay** with a protocol-correct simulated second
-  player: full best-of-3 (16/13/14 vs 20/2/20 → 1:2), giant live watcher score,
-  zero-click auto-advancing turns, mid-round disconnect → "Waiting for Emma…" →
-  reconnect → round restarted → match completed; the one-minute friendly cancel; kind
-  loser banner; both sides exited cleanly with the retained match state cleared.
-- Found and fixed in the process: a public relay can kick a client with a *clean*
-  disconnect, which silently stops mqtt.js auto-reconnect — the room heartbeat now
-  detects a dead client and rebuilds the connection.
-
-### Update 3 (live video) test log
-
-Tested in a desktop preview against the real public relay, with a second simulated
-player running a full WebRTC peer:
-
-- **Signaling + media**: hi → offer → answer → ICE candidates exchanged as small JSON on
-  the room's `_rtc` subtopic; both peers reached `signalingState: stable`,
-  `connectionState: connected`, and the remote video **decoded real frames** both ways.
-  Quality caps verified live on the sender (400 kbps / 15 fps / downscale to 480×360).
-- **UI**: partner PiP with name in free play; tap-swap both directions; drag to any
-  corner; Versus choreography confirmed by screenshot — their video fullscreen under
-  their giant name + live score during their turn, back to the corner on yours; mute
-  flips the shared mic track and the badge says "mic off".
-- **Resilience**: mid-call crash noticed (`ice: disconnected`), partner rejoined with a
-  fresh session id, full renegotiation reconnected with frames flowing; the
-  third-joiner gate blocked video (zero signaling sent) with the polite chip while all
-  three scores kept syncing; the kind 20s failure message appeared with the game,
-  Versus, and scoreboard fully working throughout.
-- **Not verifiable here**: real NAT traversal between two homes (preview is one
-  machine). Most home-wifi↔home-wifi pairs connect over plain STUN; if yours doesn't,
-  the failure path above is what you'll see, and a TURN server can be added in one
-  place at the top of the file.
+- **M1 theme + enemies + touch**: poster title screen with glowing Start; all five
+  enemies parked on screen and verified visually (glowing eyes, palette); synthetic
+  touch swipes through the real pointer-event path killed each kind; the brute took
+  exactly 3 separate swipes (hp 3→2→1, no score until the kill, then +5 and the
+  "BRUTE DOWN!" banner) — an early bug where one swipe could land the killing blow
+  immediately after the second hit was found and fixed by moving the 420 ms post-hit
+  shield in front of the kill branch; one swipe through three parked enemies popped
+  the 🔥 x3 combo; kill VFX (green ichor, skull poof, flying +1, shake) captured in a
+  screenshot; the 25-kill celebration fired; portrait (375×812) rebuilt the scenery
+  correctly; zero console errors.
+- **M2 hand tracking**: a synthetic fingertip sweep fed through the **real** detection
+  pipeline (camera-coordinate mapping → smoothing → trail → collision) at the real
+  ~15 Hz cadence killed shambler, crawler, ghoul, and bat parked mid-screen; the brute
+  needed exactly 3 sweeps; `videoToScreen` verified (center→center, mirror correct);
+  green pill during sweeps, yellow "Show me your hand" within ~1 s after the hand
+  left. The degrade-but-never-disable ladder is byte-identical to Fruit Party (its
+  recovery behavior was torture-tested there) and was not re-run here.
+- **M3 sounds + lightning**: all nine spooky voices schedule cleanly (AudioContext
+  `running`); the lightning envelope was sampled mid-strike (bright pop, the between-
+  blink dip at ~80 ms, fade to 0); the natural storm armed itself inside the 30–60 s
+  window and fired on its own; the horde silhouettes were caught on screenshot during
+  a flash; heartbeat arms on the first title-screen touch and stops at Start.
+- **M4 Silly mode**: toggled on the title screen and via the settings checkbox, both
+  directions, persisted across reload; cartoon sprites + party scenery + smiling moon
+  verified on screenshot; confetti goo on kills; giggle/boing scheduling clean;
+  lightning in Silly mode showed no silhouettes; zero console errors.
+- **M5 Versus against the real public relay** (broker.emqx.io) with a protocol-correct
+  simulated second player: room joined with a spooky code (`CRYPT-OWL-9955`), the
+  second player appeared on the board, Versus started with one tap and ran a full
+  best-of-3 with **zero further clicks**: my turns scored through the real slicing
+  path **including a brute +5** (7 / 0 / 2), the watcher overlay showed the opponent's
+  giant climbing live score each turn, round banners ("Alex wins round 1!", stars)
+  advanced automatically, the 2:2 tie ended in "🏆 You BOTH win! 🏆", and the retained
+  match state was verified **cleared** afterward (a fresh subscriber received
+  nothing). Silly-mode sync was exercised live in both directions over the relay
+  (my toggle reached the peer; the peer's newer toggle flipped me back, with the
+  friendly chip). Leave-room released everything.
 
 ### Known issues / honest caveats
 
+- **`poster.png` is currently a generated placeholder** painted in the right palette
+  (ruined city, toxic green, moon, glowing eyes). Drop the real poster art over it —
+  same filename, nothing else changes. The title screen darkens whatever it gets.
 - **Physical-iPad smoke test pending** (needs a real device): camera permission flow,
-  actual hand-tracking fps, audio after first tap. Checklist: load URL → Start with
-  camera → Allow → wave → green pill + glowing dot → fruit pops → tap ⚙️ → slider moves.
+  actual hand-tracking fps, audio after first tap, Creepster font load on cellular.
+  Checklist: load URL → 🌙 Start → Allow → wave → green pill + glowing dot → zombie
+  splats green → ⚙️ slider moves → Silly toggle flips the world.
+- The dropped-player "💤 Waiting…" recovery and the video call paths are engine-code
+  inherited unchanged from Fruit Party (tested there); they were not re-run end-to-end
+  in this reskin.
 - Hand identity can swap when two hands cross — a trail may briefly jump. Cosmetic.
-- Very old iPads (pre-2017, no decent WebGL) will land in touch mode by design.
+- Very old iPads (pre-2017, no decent WebGL) land in touch mode by design.
 - Public MQTT relays carry no uptime promise; the room may occasionally be unavailable.
 - Versus turn timing is driven by each device while it plays; if a device sleeps
-  mid-turn (auto-lock), the other side sees "waiting" until it wakes. Keep auto-lock off
-  or screens awake during a match.
-- The score resets on reload — by design, it just counts up forever within a session.
+  mid-turn (auto-lock), the other side sees "waiting" until it wakes. Keep auto-lock
+  off or screens awake during a match.
+- The score resets on reload — by design, the night just keeps counting up.
