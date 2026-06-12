@@ -4,20 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>🍉 Fruit Party!</title>
+<title>🧟 Zombie Hunter</title>
+<!-- one display font for the horror headings (title, banners, score);
+     if it can't load offline, everything falls back to plain cursive -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" rel="stylesheet">
 <style>
   /* ---------- layout: everything is fixed full-screen layers ---------- */
   * { margin:0; padding:0; box-sizing:border-box;
       -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   html, body { height:100%; width:100%; position:fixed; overflow:hidden;
       font-family:-apple-system, "Segoe UI", Roboto, sans-serif; }
-  body { background:linear-gradient(160deg,#3b1a72,#0f4d92,#0e7a5f);
-      background-size:300% 300%; animation:bgshift 16s ease infinite; }
+  /* spooky palette in one place — Silly mode (M4) will swap these */
+  :root { --toxic:#8aff5a; --toxic-dim:#39e02a; --bone:#e8f5dc; --ember:#ff9a3c;
+          --night:#04130a; }
+  body { background:linear-gradient(160deg,#0a2114,#04130a,#020705);
+      background-size:300% 300%; animation:bgshift 24s ease infinite; }
   @keyframes bgshift { 0%{background-position:0% 0%} 50%{background-position:100% 100%} 100%{background-position:0% 0%} }
 
   /* mirrored selfie camera behind the game canvas (hidden until camera starts) */
+  /* the player stands IN the apocalypse: darken + desaturate the selfie feed,
+     the canvas adds the green tint and vignette on top */
   #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover;
-         transform:scaleX(-1); display:none; }
+         transform:scaleX(-1); display:none; filter:brightness(.6) saturate(.45); }
   #game { position:fixed; inset:0; touch-action:none; cursor:crosshair; }
 
   /* ---------- live video call layers ---------- */
@@ -58,15 +68,26 @@
 
   /* ---------- HUD ---------- */
   #score { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 4px); left:0; right:0;
-      text-align:center; font-size:min(14vw, 90px); font-weight:900; color:#fff;
-      text-shadow:0 4px 14px rgba(0,0,0,.5); pointer-events:none;
-      transition:transform .12s ease-out; z-index:10; }
+      text-align:center; font-size:min(15vw, 96px); font-weight:400;
+      font-family:'Creepster', cursive; color:#c8ffae;
+      text-shadow:0 0 18px rgba(122,255,86,.65), 0 4px 14px rgba(0,0,0,.8);
+      pointer-events:none; transition:transform .12s ease-out; z-index:10; }
   #score.bump { transform:scale(1.22); }
   #banner { position:fixed; top:34%; left:0; right:0; text-align:center;
-      font-size:min(20vw, 130px); font-weight:900; color:#ffe45e;
-      text-shadow:0 6px 18px rgba(0,0,0,.55); pointer-events:none; z-index:11;
+      font-size:min(19vw, 124px); font-weight:400; font-family:'Creepster', cursive;
+      color:var(--toxic); text-shadow:0 0 26px rgba(122,255,86,.55), 0 6px 18px rgba(0,0,0,.75);
+      pointer-events:none; z-index:11;
       opacity:0; transform:scale(.3); transition:opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
   #banner.show { opacity:1; transform:scale(1); }
+  /* combo callout (x2! x3!) — lives just under the score so it never
+     fights the big banner */
+  #combo { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px + min(15vw, 96px));
+      left:0; right:0; text-align:center; font-family:'Creepster', cursive;
+      font-size:min(11vw, 64px); color:var(--ember);
+      text-shadow:0 0 18px rgba(255,154,60,.6), 0 4px 12px rgba(0,0,0,.8);
+      pointer-events:none; z-index:10; opacity:0; transform:scale(.4);
+      transition:opacity .15s, transform .25s cubic-bezier(.2,1.8,.4,1); }
+  #combo.show { opacity:1; transform:scale(1) rotate(-4deg); }
   #chip { position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 64px); left:50%;
       transform:translateX(-50%); background:rgba(0,0,0,.5); color:#fff; padding:8px 18px;
       border-radius:999px; font-size:16px; max-width:92vw; text-align:center;
@@ -92,14 +113,15 @@
       background:rgba(0,0,0,.35); color:#fff; z-index:20; display:none; }
   .hidden { display:none !important; }
   #panel { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-      background:rgba(15,10,45,.92); color:#fff; border-radius:20px; padding:22px 26px;
-      width:min(92vw, 420px); z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+      background:rgba(6,18,10,.94); color:#fff; border-radius:20px; padding:22px 26px;
+      width:min(92vw, 420px); z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.6),
+      0 0 0 1px rgba(122,255,86,.22); }
   #panel h3 { margin-bottom:14px; font-size:22px; }
   #panel label { display:flex; align-items:center; gap:10px; font-size:22px; margin:10px 0 18px; }
   #audState { font-size:13px; opacity:.75; margin:-8px 0 12px; min-height:16px; }
   #panel input[type=range] { flex:1; height:40px; }
   #closePanel { display:block; width:100%; padding:14px; font-size:20px; font-weight:700;
-      border:none; border-radius:12px; background:#21c063; color:#fff; }
+      border:none; border-radius:12px; background:#2faa1f; color:#fff; }
   #roomSec { border-top:1px solid rgba(255,255,255,.25); margin:16px 0; padding-top:12px; }
   #roomSec input { display:block; width:100%; margin:8px 0; padding:12px; font-size:18px;
       border:none; border-radius:10px; background:rgba(255,255,255,.92); color:#222; }
@@ -111,44 +133,63 @@
       background:rgba(255,255,255,.18); color:#fff; }
   #roomSec .tiny2 { font-size:12px; opacity:.7; margin:2px 0 8px; }
   #joinBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
-      border-radius:10px; background:#4a7dff; color:#fff; margin:6px 0 4px; }
+      border-radius:10px; background:#2e7d4f; color:#fff; margin:6px 0 4px; }
   #roomStatus { font-size:14px; opacity:.85; min-height:18px; margin-bottom:8px; }
   #board { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px); left:12px;
       z-index:10; pointer-events:none; display:flex; flex-direction:column; gap:6px; }
   #board .prow { background:rgba(0,0,0,.45); color:#fff; padding:6px 14px; font-size:18px;
       border-radius:999px; }
-  #board .prow.me { background:rgba(33,192,99,.65); }
+  #board .prow.me { background:rgba(47,170,31,.6); }
 
   /* ---------- versus mode ---------- */
   #vsBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
-      border-radius:10px; background:linear-gradient(135deg,#ff5f6d,#ffa334); color:#fff;
+      border-radius:10px; background:linear-gradient(135deg,#7a2bd0,#2faa1f); color:#fff;
       margin:2px 0 8px; }
   #vov { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
       justify-content:center; gap:10px; z-index:15; pointer-events:none; text-align:center;
       background:rgba(10,5,40,.35); padding:20px; }
   #vov .v1 { font-size:min(8vw, 46px); font-weight:900; color:#fff;
       text-shadow:0 4px 14px rgba(0,0,0,.6); }
-  #vov .v2 { font-size:min(30vw, 200px); font-weight:900; color:#ffe45e; line-height:1.05;
-      text-shadow:0 8px 24px rgba(0,0,0,.55); }
+  #vov .v2 { font-size:min(30vw, 200px); font-weight:400; font-family:'Creepster', cursive;
+      color:var(--toxic); line-height:1.05;
+      text-shadow:0 0 30px rgba(122,255,86,.5), 0 8px 24px rgba(0,0,0,.65); }
   #vov .v3 { font-size:min(4.5vw, 20px); color:#fff; opacity:.85; }
   #tbar { position:fixed; top:0; left:0; height:12px; width:100%; display:none; z-index:14;
-      background:linear-gradient(90deg,#21c063,#ffe14f); border-radius:0 8px 8px 0; }
+      background:linear-gradient(90deg,#2faa1f,#a6ff4f); border-radius:0 8px 8px 0;
+      box-shadow:0 0 14px rgba(122,255,86,.55); }
 
-  /* ---------- start screen ---------- */
+  /* ---------- start screen: the poster IS the backdrop ----------
+     three background layers, top to bottom: a darkening wash so the UI
+     reads, the poster art, and a plain dark gradient in case poster.png
+     is missing (the game must never depend on the art) */
   #start { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column;
-      align-items:center; justify-content:center; gap:18px; text-align:center; padding:24px;
-      background:rgba(12,6,40,.55); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); }
-  #start .fruits { font-size:min(18vw, 96px); animation:bob 2.2s ease-in-out infinite; }
-  @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
-  #start h1 { color:#fff; font-size:min(12vw, 64px); text-shadow:0 4px 14px rgba(0,0,0,.5); }
-  #start p { color:#ffe; font-size:min(5.5vw, 24px); max-width:520px; }
-  #start .tiny { font-size:14px; opacity:.75; }
-  .bigbtn { font-size:min(7vw, 30px); font-weight:800; color:#fff; border:none;
-      padding:20px 46px; border-radius:999px; background:linear-gradient(135deg,#ff5f6d,#ffc371);
-      box-shadow:0 10px 26px rgba(0,0,0,.4); }
+      align-items:center; justify-content:center; gap:16px; text-align:center; padding:24px;
+      background:linear-gradient(rgba(3,10,5,.45), rgba(2,6,3,.72)),
+                 url('poster.png') center/cover no-repeat,
+                 linear-gradient(170deg,#0a1f10,#04130a 60%,#020806); }
+  #start h1 { font-family:'Creepster', cursive; font-weight:400; color:var(--toxic);
+      font-size:min(17vw, 96px); letter-spacing:3px; line-height:1;
+      text-shadow:0 0 30px rgba(122,255,86,.6), 0 0 70px rgba(122,255,86,.35),
+                  0 6px 18px rgba(0,0,0,.9);
+      animation:flicker 5s ease-in-out infinite; }
+  @keyframes flicker { 0%,100%{opacity:1} 88%{opacity:1} 90%{opacity:.55}
+      92%{opacity:1} 95%{opacity:.7} 97%{opacity:1} }
+  #start .subtitle { font-family:'Creepster', cursive; color:var(--bone);
+      font-size:min(7vw, 32px); letter-spacing:5px;
+      text-shadow:0 0 16px rgba(232,245,220,.45), 0 3px 10px rgba(0,0,0,.9); }
+  #start p { color:#dfe; font-size:min(5vw, 21px); max-width:520px;
+      text-shadow:0 2px 8px rgba(0,0,0,.9); }
+  #start .tiny { font-size:13px; opacity:.7; }
+  .bigbtn { font-size:min(8vw, 34px); font-weight:400; font-family:'Creepster', cursive;
+      letter-spacing:3px; color:#06220a; border:none; padding:18px 52px; border-radius:999px;
+      background:linear-gradient(135deg,#9dff5e,#2faa1f);
+      box-shadow:0 0 30px rgba(122,255,86,.55), 0 10px 26px rgba(0,0,0,.55);
+      animation:throb 2.1s ease-in-out infinite; }
+  @keyframes throb { 0%,100%{box-shadow:0 0 22px rgba(122,255,86,.45), 0 10px 26px rgba(0,0,0,.55)}
+      50%{box-shadow:0 0 48px rgba(140,255,95,.9), 0 10px 26px rgba(0,0,0,.55)} }
   .bigbtn:active { transform:scale(.95); }
-  .softbtn { font-size:min(4.5vw, 19px); color:#fff; border:1px solid rgba(255,255,255,.5);
-      padding:12px 26px; border-radius:999px; background:rgba(255,255,255,.12); }
+  .softbtn { font-size:min(4.5vw, 19px); color:#cfe8c8; border:1px solid rgba(157,255,176,.45);
+      padding:12px 26px; border-radius:999px; background:rgba(6,18,10,.55); }
 </style>
 </head>
 <body data-pip="br">
@@ -161,17 +202,18 @@
 
 <div id="score">0</div>
 <div id="banner"></div>
+<div id="combo"></div>
 <div id="chip"></div>
 <div id="pill" class="hidden"></div>
 <div id="hint"></div>
 
 <button id="gear" aria-label="Settings">⚙️</button>
 <div id="panel" class="hidden">
-  <h3>⚙️ Fruit speed</h3>
+  <h3>🧟 Zombie speed</h3>
   <label>🐢 <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> 🐇</label>
   <div id="audState"></div>
   <div id="roomSec">
-    <h3>👨‍👧 Play together</h3>
+    <h3>🪦 Hunt together</h3>
     <div id="codeRow"><span id="genCode"></span><button id="newCode" aria-label="New code">↻</button></div>
     <p class="tiny2">Share this code with the other device — or type your own below.</p>
     <input id="pname" maxlength="12" placeholder="Your name" autocomplete="off">
@@ -192,18 +234,18 @@
 <div id="tbar"></div>
 
 <div id="start">
-  <div class="fruits">🍉🍓🍊</div>
-  <h1>Fruit Party!</h1>
-  <p>Wave your hand (or swipe a finger) to slice the fruit. No losing — just popping!</p>
-  <button id="btnCam" class="bigbtn">📷 Start (with camera)</button>
-  <button id="btnTouch" class="softbtn">👆 Play without camera</button>
-  <p class="tiny">The camera lets you slice by waving — video never leaves your device.</p>
+  <h1>Zombie Hunter</h1>
+  <p class="subtitle">— Survive the night —</p>
+  <p>Wave your hand (or swipe a finger) to slash the horde. No lives, no game over — the night is yours.</p>
+  <button id="btnCam" class="bigbtn">🌙 Start</button>
+  <button id="btnTouch" class="softbtn">👆 Hunt without camera</button>
+  <p class="tiny">Start uses the camera so you can slash by waving — video never leaves your device.</p>
 </div>
 
 <script>
 /* =====================================================================
-   🍉 FRUIT PARTY — a no-lose fruit slicing game for little kids.
-   Milestone 1: touch & mouse slicing. (Hand tracking arrives in M2.)
+   🧟 ZOMBIE HUNTER — a no-lose horde-slashing game (Fruit Party engine,
+   reskinned). No lives, no game over: the night just keeps coming.
    ===================================================================== */
 
 // ---------- tiny helpers ----------
@@ -230,13 +272,13 @@ addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 300)); // iOS reports sizes late
 if (window.visualViewport) visualViewport.addEventListener('resize', resize);
 
-// ---------- settings (one slider: fruit speed, saved between visits) ----------
+// ---------- settings (one slider: zombie speed, saved between visits) ----------
 let speedMul = 0.8; // gentle default for small kids
-try { speedMul = parseFloat(localStorage.getItem('fp_speed')) || 0.8; } catch (e) {}
+try { speedMul = parseFloat(localStorage.getItem('zh_speed')) || 0.8; } catch (e) {}
 $('speed').value = speedMul;
 $('speed').addEventListener('input', e => {
   speedMul = parseFloat(e.target.value);
-  try { localStorage.setItem('fp_speed', speedMul); } catch (err) {}
+  try { localStorage.setItem('zh_speed', speedMul); } catch (err) {}
 });
 $('gear').addEventListener('click', () => { $('panel').classList.toggle('hidden'); updateAudState(); });
 $('closePanel').addEventListener('click', () => $('panel').classList.add('hidden'));
@@ -356,34 +398,282 @@ function playCheer() {
 }
 
 // ---------- game state ----------
-const FRUITS = [
-  { e:'🍉', c:'#ff4f6b' }, { e:'🍊', c:'#ffa334' }, { e:'🍋', c:'#ffe14f' },
-  { e:'🍎', c:'#ff5050' }, { e:'🍇', c:'#b86bff' }, { e:'🍓', c:'#ff5b7f' },
-  { e:'🥝', c:'#9adb4f' }, { e:'🍌', c:'#ffe793' }, { e:'🍑', c:'#ffb38a' },
-  { e:'🍍', c:'#ffd54f' },
-];
-let fruits = [], pieces = [], particles = [];
-let score = 0, running = false, nextSpawn = 0, MAXF = 6;
+let silly = false; // Silly mode (Milestone 4): bright palette, goofy enemies
+let enemies = [], pieces = [], particles = [];
+let score = 0, kills = 0, running = false, nextSpawn = 0, MAXF = 6;
 
-function fruitSize() { // at least 120px, a bit bigger on large screens
+/* ---------- the horde: five canvas-drawn enemies ----------
+   Each kind says how it moves, how many slashes it takes (hp), what a
+   kill is worth (pts), and how often it appears (w = spawn weight).
+   Bodies are painted ONCE into an offscreen sprite canvas and stamped
+   every frame — far cheaper than re-drawing shapes 60 times a second.
+   eyes = where the glowing eyes sit (sprite coords), so the game can
+   pulse them on top of the stamped body. */
+const KINDS = [
+  { id:'shambler', w:30, hp:1, pts:1, px:240, eyes:[[104,80],[137,78]],  paint: paintShambler },
+  { id:'crawler',  w:22, hp:1, pts:1, px:240, eyes:[[50,140],[70,138]],  paint: paintCrawler },
+  { id:'ghoul',    w:22, hp:1, pts:1, px:240, eyes:[[108,84],[132,84]],  paint: paintGhoul },
+  { id:'bat',      w:19, hp:1, pts:1, px:240, eyes:[[111,100],[129,100]],paint: paintBat },
+  { id:'brute',    w:7,  hp:3, pts:5, px:300, eyes:[[138,104],[162,104]],paint: paintBrute },
+];
+
+// the poster palette, named once so every painter agrees
+const INK = { body:'#1d3322', body2:'#27452c', limb:'#142417', dark:'#0a140c',
+              rim:'rgba(157,255,176,.4)', teeth:'#cfe0c4', accent:'#7dff5e',
+              wing:'#13241a', ghost:'#2c4a33' };
+
+// glowing green eye: soft halo + bright iris + a dead little pupil
+function eyeGlow(g, x, y, r) {
+  const halo = g.createRadialGradient(x, y, 0, x, y, r * 3);
+  halo.addColorStop(0, 'rgba(122,255,86,.85)');
+  halo.addColorStop(1, 'rgba(122,255,86,0)');
+  g.fillStyle = halo;
+  g.beginPath(); g.arc(x, y, r * 3, 0, 7); g.fill();
+  g.fillStyle = '#d8ffc2';
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  g.fillStyle = '#0a140c';
+  g.beginPath(); g.arc(x, y + r * .15, r * .45, 0, 7); g.fill();
+}
+function tri(g, x1, y1, x2, y2, x3, y3) {
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.lineTo(x3, y3);
+  g.closePath(); g.fill();
+}
+function blob(g, x, y, rx, ry) {
+  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.fill();
+}
+
+// shambling zombie — arms up, jagged hem like it's tearing out of the dirt
+function paintShambler(g, P) {
+  g.lineCap = 'round';
+  g.strokeStyle = P.limb; g.lineWidth = 17;                    // raised crooked arms
+  g.beginPath(); g.moveTo(82, 138); g.lineTo(54, 96); g.lineTo(44, 66); g.stroke();
+  g.beginPath(); g.moveTo(158, 138); g.lineTo(186, 102); g.lineTo(200, 74); g.stroke();
+  g.fillStyle = P.limb;
+  blob(g, 44, 62, 11, 11); blob(g, 200, 70, 11, 11);           // hands
+  g.lineWidth = 5;
+  for (const [hx, hy] of [[44, 62], [200, 70]])                // grabby finger nubs
+    for (let f = -1; f <= 1; f++) {
+      g.beginPath(); g.moveTo(hx + f * 6, hy - 4); g.lineTo(hx + f * 8, hy - 14); g.stroke();
+    }
+  g.fillStyle = P.body;                                        // torso, jagged hem
+  g.beginPath(); g.moveTo(66, 232); g.lineTo(64, 150);
+  g.quadraticCurveTo(66, 118, 120, 114); g.quadraticCurveTo(176, 118, 176, 150);
+  g.lineTo(174, 232);
+  for (let x = 174; x > 66; x -= 18) { g.lineTo(x - 9, 216); g.lineTo(x - 18, 232); }
+  g.closePath(); g.fill();
+  g.fillStyle = P.limb;                                        // ragged patches
+  tri(g, 100, 150, 128, 158, 108, 182); blob(g, 148, 192, 12, 12);
+  g.fillStyle = P.body2;                                       // head
+  blob(g, 120, 84, 40, 40);
+  g.strokeStyle = P.dark; g.lineWidth = 4;                     // skull scar
+  g.beginPath(); g.moveTo(94, 58); g.lineTo(112, 66); g.stroke();
+  g.beginPath(); g.moveTo(100, 56); g.lineTo(102, 68); g.stroke();
+  g.strokeStyle = P.rim; g.lineWidth = 5;                      // moonlit rim
+  g.beginPath(); g.arc(120, 84, 37, -.7, .8); g.stroke();
+  g.strokeStyle = P.dark; g.lineWidth = 5;                     // stitched mouth
+  g.beginPath(); g.moveTo(102, 108); g.quadraticCurveTo(120, 116, 140, 106); g.stroke();
+  g.lineWidth = 3;
+  for (const sx of [110, 121, 132]) {
+    g.beginPath(); g.moveTo(sx, 104); g.lineTo(sx + 2, 116); g.stroke();
+  }
+  eyeGlow(g, 104, 80, 6.5); eyeGlow(g, 137, 78, 6.5);
+}
+
+// crawler — drags itself sideways, one arm reaching, legs trailing rags
+function paintCrawler(g, P) {
+  g.lineCap = 'round';
+  g.strokeStyle = P.limb;                                      // trailing legs
+  g.lineWidth = 13; g.beginPath(); g.moveTo(186, 176); g.lineTo(224, 196); g.stroke();
+  g.lineWidth = 10; g.beginPath(); g.moveTo(192, 186); g.lineTo(230, 214); g.stroke();
+  g.fillStyle = P.body;                                        // low-slung body
+  blob(g, 142, 172, 64, 30);
+  g.fillStyle = P.body2;                                       // spine bumps
+  blob(g, 118, 146, 9, 9); blob(g, 140, 143, 10, 10); blob(g, 162, 146, 9, 9);
+  g.strokeStyle = P.limb; g.lineWidth = 15;                    // reaching arm
+  g.beginPath(); g.moveTo(92, 176); g.lineTo(48, 186); g.lineTo(20, 204); g.stroke();
+  g.fillStyle = P.limb; blob(g, 18, 206, 10, 10);
+  g.lineWidth = 5;
+  for (let f = 0; f < 3; f++) {
+    g.beginPath(); g.moveTo(14 + f * 5, 200); g.lineTo(8 + f * 6, 192); g.stroke();
+  }
+  g.fillStyle = P.body2;                                       // head jutting forward
+  blob(g, 62, 148, 34, 34);
+  g.fillStyle = P.dark;                                        // hanging open jaw
+  g.beginPath(); g.moveTo(34, 156); g.quadraticCurveTo(50, 180, 78, 170);
+  g.lineTo(74, 154); g.closePath(); g.fill();
+  g.fillStyle = P.teeth;
+  tri(g, 44, 160, 52, 160, 48, 168); tri(g, 58, 162, 66, 162, 62, 170);
+  g.strokeStyle = P.rim; g.lineWidth = 4;                      // moonlit back
+  g.beginPath(); g.moveTo(100, 144); g.quadraticCurveTo(142, 134, 188, 148); g.stroke();
+  eyeGlow(g, 50, 140, 5.5); eyeGlow(g, 70, 138, 5.5);
+}
+
+// ghoul — a wraith that floats up, hem fading into wisps
+function paintGhoul(g, P) {
+  g.fillStyle = P.ghost;                                       // flowing sheet
+  g.beginPath(); g.moveTo(78, 196);
+  g.quadraticCurveTo(64, 120, 86, 82); g.quadraticCurveTo(100, 52, 120, 52);
+  g.quadraticCurveTo(140, 52, 154, 82); g.quadraticCurveTo(176, 120, 162, 196);
+  g.quadraticCurveTo(150, 180, 142, 200); g.quadraticCurveTo(132, 182, 124, 204);
+  g.quadraticCurveTo(112, 184, 104, 202); g.quadraticCurveTo(94, 182, 78, 196);
+  g.closePath(); g.fill();
+  g.fillStyle = P.body2;                                       // drooping arm flaps
+  g.beginPath(); g.moveTo(84, 110); g.quadraticCurveTo(48, 128, 42, 164);
+  g.quadraticCurveTo(60, 156, 72, 160); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(156, 110); g.quadraticCurveTo(192, 128, 198, 164);
+  g.quadraticCurveTo(180, 156, 168, 160); g.closePath(); g.fill();
+  const fade = g.createLinearGradient(0, 150, 0, 212);         // wispy fade-out hem
+  fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,.9)');
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = fade; g.fillRect(30, 142, 180, 76);
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = P.dark;                                        // hollow face
+  blob(g, 120, 92, 27, 32);
+  g.fillStyle = '#040a05';                                     // wailing mouth
+  blob(g, 120, 112, 9, 13);
+  g.strokeStyle = P.rim; g.lineWidth = 4;
+  g.beginPath(); g.arc(120, 88, 36, -2.6, -.5); g.stroke(); // hugs the head dome
+  eyeGlow(g, 108, 84, 6); eyeGlow(g, 132, 84, 6);
+}
+
+// bat — webbed wings, big ears, tiny fangs
+function paintBat(g, P) {
+  g.fillStyle = P.wing;                                        // scalloped wings
+  g.beginPath(); g.moveTo(112, 118); g.quadraticCurveTo(70, 74, 18, 72);
+  g.quadraticCurveTo(34, 96, 28, 118); g.quadraticCurveTo(52, 112, 58, 132);
+  g.quadraticCurveTo(80, 124, 88, 146); g.quadraticCurveTo(102, 134, 112, 142);
+  g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(128, 118); g.quadraticCurveTo(170, 74, 222, 72);
+  g.quadraticCurveTo(206, 96, 212, 118); g.quadraticCurveTo(188, 112, 182, 132);
+  g.quadraticCurveTo(160, 124, 152, 146); g.quadraticCurveTo(138, 134, 128, 142);
+  g.closePath(); g.fill();
+  g.strokeStyle = P.dark; g.lineWidth = 3;                     // wing bones
+  for (const m of [-1, 1]) {
+    g.beginPath(); g.moveTo(120 + m * 8, 118); g.lineTo(120 + m * 72, 84); g.stroke();
+    g.beginPath(); g.moveTo(120 + m * 8, 122); g.lineTo(120 + m * 80, 108); g.stroke();
+  }
+  g.fillStyle = P.body; blob(g, 120, 134, 22, 30);             // body
+  g.fillStyle = P.body2; blob(g, 120, 102, 23, 23);            // head
+  tri(g, 104, 92, 98, 58, 118, 84); tri(g, 136, 92, 142, 58, 122, 84); // ears
+  g.fillStyle = P.teeth;                                       // fangs
+  tri(g, 113, 116, 118, 116, 115, 126); tri(g, 122, 116, 127, 116, 124, 126);
+  eyeGlow(g, 111, 100, 5.5); eyeGlow(g, 129, 100, 5.5);
+}
+
+// spiked brute — the rare 3-hit boss, toxic cracks glowing across its chest
+function paintBrute(g, P) {
+  g.lineCap = 'round';
+  g.fillStyle = '#1a3320';                                     // back spikes
+  tri(g, 178, 100, 122, 16, 118, 100);
+  tri(g, 144, 112, 58, 40, 96, 124);
+  tri(g, 156, 112, 242, 46, 204, 124);
+  g.strokeStyle = 'rgba(125,255,94,.45)'; g.lineWidth = 3;     // spike edge light
+  g.beginPath(); g.moveTo(122, 16); g.lineTo(118, 100); g.stroke();
+  g.beginPath(); g.moveTo(58, 40); g.lineTo(96, 124); g.stroke();
+  g.beginPath(); g.moveTo(242, 46); g.lineTo(204, 124); g.stroke();
+  g.strokeStyle = P.limb; g.lineWidth = 30;                    // huge arms
+  g.beginPath(); g.moveTo(92, 150); g.lineTo(58, 210); g.stroke();
+  g.beginPath(); g.moveTo(208, 150); g.lineTo(242, 210); g.stroke();
+  g.fillStyle = P.limb;
+  blob(g, 54, 232, 22, 22); blob(g, 246, 232, 22, 22);         // fists
+  g.fillStyle = P.body;                                        // massive torso
+  g.beginPath(); g.moveTo(84, 128); g.quadraticCurveTo(150, 104, 216, 128);
+  g.lineTo(224, 210); g.quadraticCurveTo(150, 244, 76, 210); g.closePath(); g.fill();
+  g.fillStyle = P.body2;                                       // shoulder plates
+  blob(g, 92, 138, 30, 30); blob(g, 208, 138, 30, 30);
+  for (const w of [10, 4]) {                                   // glowing chest cracks
+    g.strokeStyle = w > 4 ? 'rgba(125,255,94,.22)' : P.accent; g.lineWidth = w;
+    g.beginPath(); g.moveTo(118, 168); g.lineTo(134, 182); g.lineTo(128, 198); g.stroke();
+    g.beginPath(); g.moveTo(176, 160); g.lineTo(166, 178); g.lineTo(180, 190); g.stroke();
+    g.beginPath(); g.moveTo(150, 204); g.lineTo(158, 216); g.stroke();
+  }
+  g.fillStyle = P.body2; blob(g, 150, 112, 30, 30);            // sunken head
+  g.fillStyle = P.limb;                                        // heavy brow
+  g.beginPath(); g.moveTo(122, 96); g.lineTo(178, 96); g.lineTo(174, 108);
+  g.lineTo(126, 108); g.closePath(); g.fill();
+  g.beginPath(); g.roundRect ? g.roundRect(118, 122, 64, 20, 6) : g.rect(118, 122, 64, 20);
+  g.fill();                                                    // underbite jaw
+  g.fillStyle = P.teeth;                                       // teeth point UP
+  tri(g, 126, 122, 134, 122, 130, 110); tri(g, 142, 122, 150, 122, 146, 108);
+  tri(g, 158, 122, 166, 122, 162, 110);
+  g.fillStyle = P.limb;                                        // leg stubs
+  g.fillRect(116, 238, 28, 34); g.fillRect(156, 238, 28, 34);
+  eyeGlow(g, 138, 104, 6.5); eyeGlow(g, 162, 104, 6.5);
+}
+
+// build (and cache) the sprite for a kind in the current mode; sprites are
+// painted at 2x and downscaled when stamped, so they stay crisp on retina
+const spriteCache = { spooky: {}, silly: {} };
+function getSprite(kind) {
+  const mode = silly ? 'silly' : 'spooky';
+  let c = spriteCache[mode][kind.id];
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = kind.px * 2;
+  const g = c.getContext('2d');
+  g.scale(2, 2);
+  kind.paint(g, INK);
+  spriteCache[mode][kind.id] = c;
+  return c;
+}
+
+function enemySize() { // at least 120px, a bit bigger on large screens
   return Math.max(120, Math.min(150, Math.min(W, H) * 0.18));
 }
 
-// Launch a fruit from below the screen on a slow, floaty arc.
-// We pick where the arc should peak and how long it should take,
-// then derive launch speed + gravity from those (vy = -2h/T, g = 2h/T²).
+let lastBrute = 0;
+function pickKind(now) {
+  // the brute is rare: never in the first 15s, never twice within 14s
+  const bruteOK = now > 15000 && now - lastBrute > 14000;
+  let total = 0;
+  for (const k of KINDS) total += (k.id === 'brute' && !bruteOK) ? 0 : k.w;
+  let roll = Math.random() * total;
+  for (const k of KINDS) {
+    const w = (k.id === 'brute' && !bruteOK) ? 0 : k.w;
+    if ((roll -= w) < 0) return k;
+  }
+  return KINDS[0];
+}
+
+// Every kind enters the screen its own way. The risers reuse the old fruit
+// arc math: pick where the rise should peak and how long it should take,
+// then derive launch speed + gravity (vy = -2h/T, g = 2h/T²).
 function spawn() {
-  const size = fruitSize(), r = size / 2;
-  const kind = FRUITS[Math.floor(Math.random() * FRUITS.length)];
-  const T = rand(1.9, 2.6) / speedMul;                 // seconds to reach the top of the arc
-  const h = rand(0.45, 0.8) * (H - size);              // how high it floats
-  fruits.push({
-    e: kind.e, c: kind.c, size, r,
-    x: rand(0.15, 0.85) * W, y: H + r,
-    vx: rand(-40, 40), vy: -2 * h / T, g: 2 * h / (T * T),
-    rot: rand(-.4, .4), spin: rand(-1.2, 1.2),
-  });
-  tone(180, 320, .18, 'sine', .07); // quiet "boop" as each fruit floats in
+  const now = performance.now();
+  const kind = pickKind(now);
+  const base = enemySize();
+  const size = kind.id === 'brute' ? base * 1.4 : base;
+  const r = size / 2;
+  const e = { kind, size, r, hp: kind.hp, t: 0, phase: rand(0, 6.28),
+              x: 0, y: 0, vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0,
+              spr: getSprite(kind) };
+  if (kind.id === 'shambler' || kind.id === 'brute') {
+    // climbs out of the ground: a slow, low arc from below the screen
+    const T = (kind.id === 'brute' ? rand(2.6, 3.2) : rand(2.2, 2.9)) / speedMul;
+    const h = (kind.id === 'brute' ? rand(.35, .6) : rand(.3, .55)) * (H - size);
+    e.x = rand(.15, .85) * W; e.y = H + r;
+    e.vx = rand(-30, 30); e.vy = -2 * h / T; e.g = 2 * h / (T * T);
+    if (kind.id === 'brute') lastBrute = now;
+  } else if (kind.id === 'crawler') {
+    // drags itself across, hugging the ground
+    e.dir = Math.random() < .5 ? 1 : -1;
+    e.x = e.dir > 0 ? -r : W + r;
+    e.by = H - r * rand(.9, 1.5); e.y = e.by;
+    e.vx = e.dir * rand(70, 115) * speedMul;
+  } else if (kind.id === 'ghoul') {
+    // floats straight up with a sideways wobble
+    e.bx = rand(.12, .88) * W; e.x = e.bx; e.y = H + r;
+    e.vy = -rand(60, 95) * speedMul;
+    e.wA = rand(28, 60); e.wF = rand(1.4, 2.4);
+  } else { // bat — swoops across in a sine wave
+    e.dir = Math.random() < .5 ? 1 : -1;
+    e.x = e.dir > 0 ? -r : W + r;
+    e.by = rand(.16, .45) * H; e.y = e.by;
+    e.vx = e.dir * rand(140, 220) * speedMul;
+    e.wA = rand(.06, .15) * H; e.wF = rand(1.8, 3);
+  }
+  enemies.push(e);
+  tone(120, 60, .25, 'sawtooth', .06); // low murmur as something arrives (M3 adds real voices)
 }
 
 // ---------- slicing: blade trails + collision ----------
@@ -393,21 +683,29 @@ const TRAIL_MS = 280;
 const trails = new Map();
 let hueSeed = 0;
 
+// every blade gets a toxic green tone of its own (still tells two hands apart)
+const BLADE_HUES = [96, 110, 122, 134];
+
 function addTrailPoint(key, x, y) {
   let tr = trails.get(key);
-  if (!tr) { tr = { pts: [], hue: (hueSeed += 77) % 360 }; trails.set(key, tr); }
+  if (!tr) { tr = { pts: [], hue: BLADE_HUES[(hueSeed++) % BLADE_HUES.length] }; trails.set(key, tr); }
   const prev = tr.pts[tr.pts.length - 1];
   tr.pts.push({ x, y, t: performance.now() });
   if (tr.pts.length > 40) tr.pts.shift();
   if (!running) return;
+  // ember sparks spit off the moving blade
+  if (prev && particles.length < 400 && Math.random() < .4)
+    particles.push({ type:'spark', x, y, vx: rand(-70, 70), vy: rand(-130, 10),
+                     color: Math.random() < .7 ? '#a6ff5e' : '#ffb066',
+                     life: rand(.25, .5), max: .5 });
   // Hand blades get extra forgiveness: tracking runs at ~15Hz and a waving
   // arm is not a stylus, so the hit radius is bigger than for touch.
   const pad = key.startsWith('hand') ? 22 : 8;
   // Collision is checked on the SEGMENT between the last two points, so a
-  // fast swipe can't tunnel through a fruit between frames...
+  // fast swipe can't tunnel through an enemy between frames...
   if (prev) checkSlice(prev.x, prev.y, x, y, pad);
-  // ...and also on the newest point alone, so a fruit drifting into a
-  // resting fingertip still pops (perfect for 2-year-olds).
+  // ...and also on the newest point alone, so a zombie drifting into a
+  // resting fingertip still goes down (perfect for 2-year-olds).
   pointCheck(x, y, pad + 2);
 }
 
@@ -418,92 +716,161 @@ function segPointDist(ax, ay, bx, by, px, py) {
   return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
 function checkSlice(x1, y1, x2, y2, pad) {
-  for (let i = fruits.length - 1; i >= 0; i--) {
-    const f = fruits[i];
-    if (segPointDist(x1, y1, x2, y2, f.x, f.y) < f.r + pad)
-      sliceFruit(i, Math.atan2(y2 - y1, x2 - x1));
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (segPointDist(x1, y1, x2, y2, e.x, e.y) < e.r + pad)
+      slashEnemy(i, Math.atan2(y2 - y1, x2 - x1));
   }
 }
 function pointCheck(x, y, pad) {
-  for (let i = fruits.length - 1; i >= 0; i--) {
-    const f = fruits[i];
-    if (Math.hypot(f.x - x, f.y - y) < f.r + pad) sliceFruit(i, rand(0, Math.PI));
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (Math.hypot(e.x - x, e.y - y) < e.r + pad) slashEnemy(i, rand(0, Math.PI));
   }
 }
 
-// combo: quick consecutive slices raise the pop pitch — very satisfying
+// combo: kills landing within 1s of each other raise the splat pitch and
+// pop a x2/x3 callout — very satisfying
 let comboN = 0, comboT = 0;
 let onScoreChange = () => {}; // the optional shared room hooks in here
 
-function sliceFruit(i, ang) {
-  const f = fruits[i];
-  fruits.splice(i, 1);
-  score++;
+function showCombo(n) {
+  const c = $('combo');
+  c.textContent = '🔥 x' + n + '!';
+  c.classList.add('show');
+  clearTimeout(showCombo.t);
+  showCombo.t = setTimeout(() => c.classList.remove('show'), 900);
+}
+
+// screen shake: kills bump it up, the draw loop jitters by it as it decays
+let shakeAmp = 0;
+function addShake(a) { shakeAmp = Math.min(12, shakeAmp + a); }
+
+function slashEnemy(i, ang) {
+  const e = enemies[i], now = performance.now();
+  // a short shield after every brute hit, so one fast swipe (= many trail
+  // segments) can't chain 3 hits — including the killing blow — at once
+  if (now < (e.iv || 0)) return;
+
+  if (e.hp > 1) {
+    e.hp--; e.iv = now + 420;
+    e.flash = .3;                                   // white-hot stagger flash
+    e.vx += Math.cos(ang) * 90;                     // knocked back along the cut
+    e.vy = Math.min(e.vy, 0) - 70;
+    addShake(4);
+    ichor(e.x, e.y, e.r * .5);
+    playPop(.5);                                    // low thud (M3 makes it a roar)
+    return;
+  }
+
+  enemies.splice(i, 1);
+  kills++;
+  score += e.kind.pts;
   const el = $('score');
   el.textContent = score;
   el.classList.add('bump');
   setTimeout(() => el.classList.remove('bump'), 130);
 
-  const now = performance.now();
-  comboN = (now - comboT < 1200) ? comboN + 1 : 0;
+  comboN = (now - comboT < 1000) ? comboN + 1 : 0;
   comboT = now;
-  playPop(Math.pow(1.06, Math.min(comboN, 8)));
+  if (comboN >= 1) showCombo(comboN + 1);
+  playPop(Math.pow(1.07, Math.min(comboN, 8)));
 
-  // two emoji halves fly apart perpendicular to the swipe direction
+  // the body splits in two along the cut, halves flying apart
   for (const dir of [-1, 1]) {
     const px = Math.cos(ang + Math.PI / 2) * dir, py = Math.sin(ang + Math.PI / 2) * dir;
     pieces.push({
-      e: f.e, x: f.x, y: f.y, size: f.size, cut: ang, dir, rot: f.rot,
-      vx: f.vx + px * 150 + rand(-30, 30),
-      vy: Math.min(f.vy, 0) * .3 + py * 150 - 60,
+      spr: e.spr, x: e.x, y: e.y, size: e.size, cut: ang, dir, rot: e.rot,
+      flip: e.dir > 0,
+      vx: e.vx + px * 150 + rand(-30, 30),
+      vy: Math.min(e.vy, 0) * .3 + py * 150 - 60,
       spin: dir * rand(1.5, 3.5), life: 1,
     });
   }
-  juice(f.x, f.y, f.c);
-  if (score % 10 === 0 && !versus) celebrate(); // versus has its own big moments
-  onScoreChange();
+  const isBrute = e.kind.id === 'brute';
+  ichor(e.x, e.y, e.r * (isBrute ? 1.7 : 1));
+  particles.push({ type:'poof', x: e.x, y: e.y - 10, e: silly ? '⭐' : '💀',
+                   size: e.size * .38, life: .6, max: .6 });
+  particles.push({ type:'ptext', txt: '+' + e.kind.pts, x: e.x, y: e.y - e.r * .6,
+                   life: .9, max: .9 });
+  addShake(isBrute ? 9 : 2.5);
+  if (isBrute) {
+    bannerShow('🧟 BRUTE DOWN! 🧟', 1500);
+    ichor(e.x, e.y, e.r * 2.4);                     // huge goo burst
+  }
+  if (kills % 25 === 0 && !versus) celebrate();     // versus has its own big moments
+  onScoreChange(e.kind.pts);
 }
 
-function juice(x, y, color) {
+// glowing green ichor — never red. scale ~60 = a normal kill.
+const ICHOR = ['#7dff5e', '#4ddb3a', '#b6ff7a', '#2fae22'];
+function ichor(x, y, scale) {
   if (particles.length > 380) particles.splice(0, 60); // hard cap, keeps old iPads smooth
-  particles.push({ type:'ring', x, y, r: 12, color, life: .45, max: .45 });
-  for (let i = 0; i < 16; i++) {
-    const a = rand(0, Math.PI * 2), sp = rand(120, 420);
+  const s = Math.min(scale / 60, 2);
+  particles.push({ type:'ring', x, y, r: 12, color: ICHOR[0], life: .45, max: .45 });
+  const n = Math.round(16 * s + 4);
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), sp = rand(120, 420) * Math.min(s, 1.6);
     particles.push({ type:'drop', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
-                     r: rand(4, 11), color, life: rand(.5, .9) });
+                     r: rand(4, 11) * Math.min(s, 1.5),
+                     color: ICHOR[(Math.random() * ICHOR.length) | 0], life: rand(.5, .9) });
   }
 }
 
-const PRAISE = ['YAY!', 'WOW!', 'SUPER!', 'GREAT!', 'AMAZING!', 'WOOHOO!'];
-function celebrate() {
+const PRAISE = ['FEARLESS!', 'UNSTOPPABLE!', 'NIGHT STALKER!', 'MONSTER SLAYER!',
+                'LEGENDARY!', 'UNDEAD UNDONE!'];
+function celebrate() { // every 25 kills (M3 turns this into a full lightning storm)
   const b = $('banner');
-  b.textContent = '🎉 ' + PRAISE[(score / 10 - 1) % PRAISE.length] + ' ' + score + ' 🎉';
+  b.textContent = '⚡ ' + PRAISE[(kills / 25 - 1) % PRAISE.length] + ' ' + kills + ' ⚡';
   b.classList.add('show');
   setTimeout(() => b.classList.remove('show'), 1600);
   playCheer();
   confettiBurst();
 }
-function confettiBurst() {
+function confettiBurst() { // goo-confetti: toxic greens with ember orange
   if (particles.length > 330) particles.splice(0, 110);
   for (let i = 0; i < 70; i++)
     particles.push({ type:'conf', x: rand(0, W), y: rand(-80, -10), vx: rand(-60, 60),
-                     vy: rand(90, 230), r: rand(5, 9), hue: rand(0, 360),
+                     vy: rand(90, 230), r: rand(5, 9),
+                     hue: silly ? rand(0, 360) : (Math.random() < .65 ? rand(90, 140) : rand(18, 45)),
                      rot: rand(0, 6.3), spin: rand(-6, 6), life: rand(1.6, 2.4) });
 }
 
 // ---------- physics + drawing ----------
 function update(dt, now) {
-  // in a versus match, fruit only spawns during YOUR 30-second turn
+  // in a versus match, enemies only spawn during YOUR 30-second turn
   const maySpawn = !versus || versus.playing;
-  if (maySpawn && now > nextSpawn && fruits.length < MAXF) {
+  if (maySpawn && now > nextSpawn && enemies.length < MAXF) {
     spawn();
     nextSpawn = now + rand(1100, 1800) / speedMul;
   }
-  for (let i = fruits.length - 1; i >= 0; i--) {
-    const f = fruits[i];
-    f.vy += f.g * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.spin * dt;
-    if (f.x < f.r || f.x > W - f.r) f.vx *= -1;          // bounce off side walls
-    if (f.y > H + f.size * 2 && f.vy > 0) fruits.splice(i, 1); // drifted away — no penalty
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.t += dt;
+    if (e.flash > 0) e.flash -= dt * 3;
+    if (e.pin) continue; // test hook parks an enemy in place
+    const k = e.kind.id;
+    if (k === 'shambler' || k === 'brute') {        // rising out of the ground
+      e.vy += e.g * dt; e.x += e.vx * dt; e.y += e.vy * dt;
+      e.rot = Math.sin(e.t * 2.2 + e.phase) * .07;  // drunken sway
+      if (e.x < e.r || e.x > W - e.r) e.vx *= -1;   // bounce off side walls
+      if (e.y > H + e.size * 2 && e.vy > 0) enemies.splice(i, 1); // sank back — no penalty
+    } else if (k === 'crawler') {                   // dragging across the ground
+      e.x += e.vx * dt;
+      e.y = e.by + Math.sin(e.t * 5 + e.phase) * 5; // lurching drag
+      e.rot = Math.sin(e.t * 5 + e.phase) * .04 * e.dir;
+      if ((e.dir > 0 && e.x > W + e.size) || (e.dir < 0 && e.x < -e.size)) enemies.splice(i, 1);
+    } else if (k === 'ghoul') {                     // floating up, wobbling
+      e.y += e.vy * dt;
+      e.x = e.bx + Math.sin(e.t * e.wF + e.phase) * e.wA;
+      e.rot = Math.sin(e.t * e.wF + e.phase) * .12;
+      if (e.y < -e.size * 2) enemies.splice(i, 1);
+    } else {                                        // bat swooping through
+      e.x += e.vx * dt;
+      e.y = e.by + Math.sin(e.t * e.wF + e.phase) * e.wA;
+      e.rot = Math.cos(e.t * e.wF + e.phase) * .16 * e.dir;
+      if ((e.dir > 0 && e.x > W + e.size) || (e.dir < 0 && e.x < -e.size)) enemies.splice(i, 1);
+    }
   }
   for (let i = pieces.length - 1; i >= 0; i--) {
     const p = pieces[i];
@@ -515,10 +882,18 @@ function update(dt, now) {
     const p = particles[i];
     p.life -= dt;
     if (p.type === 'drop') { p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    else if (p.type === 'spark') { p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
     else if (p.type === 'conf') { p.vy += 140 * dt; p.x += (p.vx + Math.sin(p.life * 5) * 40) * dt; p.y += p.vy * dt; p.rot += p.spin * dt; }
     else if (p.type === 'ring') p.r += 320 * dt;
     if (p.life <= 0) particles.splice(i, 1);
   }
+  // drifting embers live in the scenery, recycled forever
+  if (scene) for (const em of scene.embers) {
+    em.y -= em.sp * dt;
+    em.x += Math.sin(now / 900 + em.ph) * 12 * dt;
+    if (em.y < -6) { em.y = H + 6; em.x = rand(0, W); }
+  }
+  if (shakeAmp > 0) shakeAmp = Math.max(0, shakeAmp - 26 * dt);
 }
 
 function drawEmoji(e, size) {
@@ -528,16 +903,193 @@ function drawEmoji(e, size) {
   ctx.fillText(e, 0, 0);
 }
 
+/* ---------- the night: cached scenery layers ----------
+   Everything static is painted ONCE into offscreen canvases (rebuilt when
+   the screen size changes) and stamped each frame, so the per-frame cost
+   is a few drawImage calls plus the little animated bits: flickering
+   windows, drifting fog and clouds, rising embers. */
+let scene = null;
+let remoteIsBig = false; // set by layoutVideos: partner video is fullscreen
+let flash = 0;           // 0..1 lightning brightness this frame (M3 drives it)
+
+function buildScene() {
+  const mk = (w, h) => { const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+
+  // green tint + vignette in one full-screen layer
+  const vg = mk(W, H), vgc = vg.getContext('2d');
+  vgc.fillStyle = 'rgba(7,22,11,.30)';
+  vgc.fillRect(0, 0, W, H);
+  const rad = vgc.createRadialGradient(W / 2, H * .45, Math.min(W, H) * .32,
+                                       W / 2, H * .55, Math.max(W, H) * .78);
+  rad.addColorStop(0, 'rgba(1,6,3,0)');
+  rad.addColorStop(1, 'rgba(1,6,3,.72)');
+  vgc.fillStyle = rad; vgc.fillRect(0, 0, W, H);
+
+  // pale full moon with a sickly halo
+  const mr = Math.min(W, H) * .11, mpx = mr * 3;
+  const moon = mk(mpx * 2, mpx * 2), mc = moon.getContext('2d');
+  const halo = mc.createRadialGradient(mpx, mpx, mr * .6, mpx, mpx, mpx);
+  halo.addColorStop(0, 'rgba(205,255,205,.5)');
+  halo.addColorStop(.35, 'rgba(160,255,170,.16)');
+  halo.addColorStop(1, 'rgba(160,255,170,0)');
+  mc.fillStyle = halo; mc.fillRect(0, 0, mpx * 2, mpx * 2);
+  mc.fillStyle = '#dceed2';
+  mc.beginPath(); mc.arc(mpx, mpx, mr, 0, 7); mc.fill();
+  mc.fillStyle = 'rgba(178,200,168,.8)';
+  for (let i = 0; i < 7; i++) { // craters
+    const a = rand(0, 6.28), d = rand(0, mr * .68), cr = rand(mr * .06, mr * .2);
+    mc.beginPath(); mc.arc(mpx + Math.cos(a) * d, mpx + Math.sin(a) * d, cr, 0, 7); mc.fill();
+  }
+
+  // two ruined skylines: far = dim green, near = almost black w/ lit windows
+  const skyH = H * .30;
+  const far = mk(W, skyH), nearC = mk(W, skyH);
+  const windows = [];
+  const drawTown = (cv, col, hmin, hmax, near) => {
+    const g2 = cv.getContext('2d'); g2.fillStyle = col;
+    let x = -10;
+    while (x < W + 10) {
+      const bw = rand(W * .05, W * .11), bh = rand(hmin, hmax) * skyH, top = skyH - bh;
+      if (Math.random() < .5) { // broken, slanted rooftop
+        g2.beginPath();
+        g2.moveTo(x, skyH); g2.lineTo(x, top + rand(8, 30));
+        g2.lineTo(x + bw * .45, top); g2.lineTo(x + bw, top + rand(14, 44));
+        g2.lineTo(x + bw, skyH); g2.closePath(); g2.fill();
+      } else {
+        g2.fillRect(x, top, bw, bh);
+        if (Math.random() < .4) g2.fillRect(x + rand(6, bw - 10), top - rand(10, 26), 3, rand(10, 26));
+      }
+      if (near) for (let k = 0, n = (Math.random() * 3) | 0; k < n; k++)
+        windows.push({ x: x + rand(6, bw - 14), y: skyH - rand(.15, .75) * bh,
+                       w: rand(5, 9), h: rand(7, 12), ph: rand(0, 6.28),
+                       orange: Math.random() < .75 });
+      x += bw + rand(4, W * .02);
+    }
+  };
+  drawTown(far, '#0b2113', .35, .95, false);
+  drawTown(nearC, '#040806', .2, .7, true);
+
+  // a distant horde, revealed only while lightning flashes (M3)
+  const horde = mk(W, skyH), hc = horde.getContext('2d');
+  hc.fillStyle = hc.strokeStyle = '#010302'; hc.lineCap = 'round';
+  for (let i = 0; i < 12; i++) {
+    const x = rand(20, W - 20), s = rand(.5, 1), b = skyH;
+    hc.beginPath(); hc.arc(x, b - 34 * s, 9 * s, 0, 7); hc.fill();
+    hc.beginPath(); hc.moveTo(x - 11 * s, b); hc.lineTo(x - 7 * s, b - 26 * s);
+    hc.lineTo(x + 7 * s, b - 26 * s); hc.lineTo(x + 12 * s, b); hc.closePath(); hc.fill();
+    hc.lineWidth = 4 * s;
+    hc.beginPath(); hc.moveTo(x - 7 * s, b - 22 * s);
+    hc.lineTo(x - 18 * s, b - (Math.random() < .5 ? 34 : 12) * s); hc.stroke();
+    hc.beginPath(); hc.moveTo(x + 7 * s, b - 22 * s);
+    hc.lineTo(x + 17 * s, b - 30 * s); hc.stroke();
+  }
+
+  // one soft fog puff, stamped a few times while drifting
+  const fog = mk(420, 180), fc = fog.getContext('2d');
+  const fr = fc.createRadialGradient(210, 120, 10, 210, 100, 200);
+  fr.addColorStop(0, 'rgba(110,230,120,.30)');
+  fr.addColorStop(1, 'rgba(110,230,120,0)');
+  fc.fillStyle = fr; fc.fillRect(0, 0, 420, 180);
+
+  // one cloud streak for the moon band
+  const cloud = mk(360, 90), cc = cloud.getContext('2d');
+  const cg = cc.createRadialGradient(180, 45, 8, 180, 45, 170);
+  cg.addColorStop(0, 'rgba(4,10,6,.85)'); cg.addColorStop(1, 'rgba(4,10,6,0)');
+  cc.fillStyle = cg;
+  cc.save(); cc.translate(180, 45); cc.scale(1, .3); cc.translate(-180, -45);
+  cc.beginPath(); cc.arc(180, 45, 170, 0, 7); cc.fill(); cc.restore();
+
+  const embers = [];
+  for (let i = 0; i < 26; i++)
+    embers.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 2.6), sp: rand(12, 38),
+                  ph: rand(0, 6.28), orange: Math.random() < .55 });
+
+  scene = { w: W, h: H, vg, moon, far, near: nearC, horde, skyH, windows,
+            fog, cloud, embers, mx: W * .68, my: H * .18 };
+}
+
+function drawScene(now) {
+  const s = scene;
+  ctx.drawImage(s.vg, 0, 0, W, H); // tint + vignette, also over the camera feed
+  if (remoteIsBig) return;         // partner's video is fullscreen — keep them visible
+  const mw = s.moon.width / 2;
+  ctx.drawImage(s.moon, s.mx - mw, s.my - mw);
+  for (let i = 0; i < 3; i++) {    // clouds drifting across the moon band
+    const cx = ((now * .008 * (1 + i * .35) + i * W * .45) % (W + 720)) - 360;
+    ctx.globalAlpha = .8;
+    ctx.drawImage(s.cloud, W - cx - 360, s.my - 50 + i * 48);
+  }
+  ctx.globalAlpha = 1;
+  ctx.drawImage(s.far, 0, H - s.skyH - H * .04);
+  ctx.drawImage(s.near, 0, H - s.skyH);
+  if (flash > .25) {               // zombie horde appears only in the lightning
+    ctx.globalAlpha = Math.min(1, (flash - .25) * 2);
+    ctx.drawImage(s.horde, 0, H - s.skyH);
+    ctx.globalAlpha = 1;
+  }
+  for (const w of s.windows) {     // flickering windows
+    const f = Math.sin(now / 640 + w.ph) * .5 + .5;
+    if (f < .22) continue;         // blacked out right now
+    ctx.globalAlpha = .35 + .6 * f;
+    ctx.fillStyle = w.orange ? '#ff9a3c' : '#9dff57';
+    ctx.fillRect(w.x, H - s.skyH + w.y, w.w, w.h);
+  }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 4; i++) {    // toxic ground fog
+    let fx = ((now * (.010 + .005 * i)) + i * 400) % (W + 840) - 420;
+    if (i % 2) fx = W - fx - 420;
+    ctx.globalAlpha = .5;
+    ctx.drawImage(s.fog, fx, H - 150 - i * 26);
+  }
+  ctx.globalAlpha = 1;
+  for (const em of s.embers) {     // embers floating up
+    ctx.globalAlpha = .35 + .35 * Math.sin(now / 300 + em.ph);
+    ctx.fillStyle = em.orange ? '#ffb066' : '#9dff6e';
+    ctx.beginPath(); ctx.arc(em.x, em.y, em.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (flash > 0) {                 // the lightning whitewash itself
+    ctx.fillStyle = 'rgba(214,255,218,' + (flash * .5).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
 function draw(now) {
   ctx.clearRect(0, 0, W, H); // transparent canvas — camera video shows through
+  ctx.save();
+  if (shakeAmp > 0)
+    ctx.translate((Math.random() * 2 - 1) * shakeAmp, (Math.random() * 2 - 1) * shakeAmp);
+  if (running) {
+    if (!scene || scene.w !== W || scene.h !== H) buildScene();
+    drawScene(now);
+  }
 
-  for (const f of fruits) {
-    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
-    drawEmoji(f.e, f.size);
+  for (const e of enemies) {
+    ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
+    if (e.dir > 0) ctx.scale(-1, 1); // crawlers and bats face where they're going
+    ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
+    if (e.flash > 0) {               // stagger flash: re-stamp the body additively
+      ctx.globalAlpha = Math.min(1, e.flash * 3);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    if (!silly) {                    // pulsing glow over the baked eyes
+      const k = e.size / e.kind.px;
+      ctx.fillStyle = 'rgba(140,255,90,' +
+        (.4 + .3 * Math.sin(now / 170 + e.phase)).toFixed(3) + ')';
+      for (const [ex, ey] of e.kind.eyes) {
+        ctx.beginPath();
+        ctx.arc((ex - e.kind.px / 2) * k, (ey - e.kind.px / 2) * k, 9 * k, 0, 7);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
-  // sliced halves: clip to one side of the cut line, then draw the emoji
+  // halves: clip to one side of the cut line, then stamp the same sprite
   for (const p of pieces) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, p.life * 2);
@@ -547,22 +1099,46 @@ function draw(now) {
     ctx.rect(-p.size, p.dir < 0 ? -p.size : 0, p.size * 2, p.size);
     ctx.clip();
     ctx.rotate(p.rot - p.cut);
-    drawEmoji(p.e, p.size);
+    if (p.flip) ctx.scale(-1, 1);
+    ctx.drawImage(p.spr, -p.size / 2, -p.size / 2, p.size, p.size);
     ctx.restore();
   }
   ctx.globalAlpha = 1;
 
   for (const p of particles) {
-    if (p.type === 'drop') {
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / .6));
+    if (p.type === 'drop') {        // glowing ichor: soft halo + bright core
+      const a = Math.max(0, Math.min(1, p.life / .6));
+      ctx.globalAlpha = a * .35;
       ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 2.1, 0, 7); ctx.fill();
+      ctx.globalAlpha = a;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+    } else if (p.type === 'spark') {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
     } else if (p.type === 'conf') {
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
       ctx.fillStyle = 'hsl(' + p.hue + ',95%,60%)';
       ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
       ctx.fillRect(-p.r, -p.r * .6, p.r * 2, p.r * 1.2); ctx.restore();
-    } else { // expanding pop ring
+    } else if (p.type === 'poof') { // quick skull poof rising off a kill
+      const t = 1 - p.life / p.max;
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.save(); ctx.translate(p.x, p.y - t * 46);
+      ctx.scale(1 + t * .5, 1 + t * .5);
+      drawEmoji(p.e, p.size);
+      ctx.restore();
+    } else if (p.type === 'ptext') { // the flying +1 / +5
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.font = '34px Creepster, cursive';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const ty = p.y - (1 - p.life / p.max) * 54;
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(3,12,5,.85)';
+      ctx.strokeText(p.txt, p.x, ty);
+      ctx.fillStyle = '#aaff7a';
+      ctx.fillText(p.txt, p.x, ty);
+    } else {                        // expanding slash ring
       ctx.globalAlpha = Math.max(0, p.life / p.max) * .8;
       ctx.strokeStyle = p.color; ctx.lineWidth = 6;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.stroke();
@@ -570,15 +1146,15 @@ function draw(now) {
   }
   ctx.globalAlpha = 1;
 
-  // blade trails: three strokes (wide glow, bright core, white center)
+  // blade trails: three strokes (wide toxic glow, bright core, pale center)
   for (const [k, tr] of trails) {
     tr.pts = tr.pts.filter(p => now - p.t < TRAIL_MS);
     if (tr.pts.length < 2) { if (!tr.pts.length) trails.delete(k); continue; }
-    const hue = (tr.hue + now * .06) % 360;
+    const hue = tr.hue + Math.sin(now * .002) * 8;
     ctx.lineCap = ctx.lineJoin = 'round';
-    for (const [wd, col] of [[26, 'hsla(' + hue + ',90%,60%,.3)'],
-                             [11, 'hsl(' + hue + ',95%,65%)'],
-                             [4, 'rgba(255,255,255,.9)']]) {
+    for (const [wd, col] of [[26, 'hsla(' + hue + ',100%,55%,.3)'],
+                             [11, 'hsl(' + hue + ',100%,62%)'],
+                             [4, 'rgba(230,255,215,.95)']]) {
       ctx.lineWidth = wd; ctx.strokeStyle = col;
       ctx.beginPath();
       ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
@@ -591,7 +1167,7 @@ function draw(now) {
   // even when the hand is holding still and there's no trail to look at
   for (const [key, s] of handSmooth) {
     const tr = trails.get(key);
-    const hue = tr ? (tr.hue + now * .06) % 360 : 140;
+    const hue = tr ? tr.hue : 110;
     const pulse = 1 + Math.sin(now / 140) * .12;
     ctx.globalAlpha = .35;
     ctx.fillStyle = 'hsl(' + hue + ',95%,65%)';
@@ -600,9 +1176,10 @@ function draw(now) {
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'hsl(' + hue + ',95%,70%)';
     ctx.beginPath(); ctx.arc(s.x, s.y, 22 * pulse, 0, 7); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    ctx.fillStyle = 'rgba(235,255,225,.95)';
     ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 7); ctx.fill();
   }
+  ctx.restore();
 }
 
 // auto-quality: if fps sags on a weak device, render at lower resolution
@@ -692,8 +1269,8 @@ async function startCamera() {
     return true;
   } catch (err) {
     showChip(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
-      ? "That's OK — camera is off! Swipe with your finger to slice 🍉"
-      : 'No camera found — touch to slice! 👆', 6000);
+      ? "That's OK — camera is off! Swipe with your finger to slash 🧟"
+      : 'No camera found — touch to slash! 👆', 6000);
     return false;
   }
 }
@@ -725,7 +1302,7 @@ async function startHands() {
     handsOK = true; handsStatus = 'on';
     detFails = 0;
     lastHandSeen = performance.now(); // start the "show me your hand" clock now
-    showChip('✋ Wave your hand to slice!', 4000);
+    showChip('✋ Wave your hand to slash!', 4000);
   } catch (e) {
     if (!loadRetried) { // flaky wifi on first visit: one more attempt in 5s
       loadRetried = true;
@@ -733,7 +1310,7 @@ async function startHands() {
       setTimeout(startHands, 5000);
     } else {
       handsStatus = 'failed';
-      showChip('Hand tracking unavailable — touch to slice! 👆', 5000);
+      showChip('Hand tracking unavailable — touch to slash! 👆', 5000);
     }
   }
 }
@@ -756,7 +1333,7 @@ async function rebuildOnCPU(reason) {
     lastHandSeen = performance.now();
     showChip('✋ Hand tracking is back — wave away!', 3500);
   } catch (e) {
-    disableHands('Hand tracking unavailable — touch to slice! 👆');
+    disableHands('Hand tracking unavailable — touch to slash! 👆');
   }
   rebuilding = false;
 }
@@ -800,7 +1377,7 @@ function detectHands(now) {
         detFails++;
         if (detFails < 3) return;
         if (currentDelegate === 'GPU') rebuildOnCPU('Hand tracking hiccup');
-        else disableHands('Hand tracking hiccup — touch to slice! 👆');
+        else disableHands('Hand tracking hiccup — touch to slash! 👆');
         return;
       }
       detTimes.push(performance.now() - t0);
@@ -878,7 +1455,7 @@ function startGame() {
   running = true;
   spawn();
   nextSpawn = performance.now() + 700;
-  showChip('Slice the fruit! 🍉', 2500);
+  showChip('Slash the zombies! 🧟', 2500);
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 }
 $('btnTouch').addEventListener('click', () => { initAudio(); startGame(); });
@@ -911,10 +1488,10 @@ const BROKERS = [ // tried in order until one connects
 ];
 // a stable id lets a player reload mid-match and pick up where they left off
 let myId = '';
-try { myId = localStorage.getItem('fp_id') || ''; } catch (e) {}
+try { myId = localStorage.getItem('zh_id') || ''; } catch (e) {}
 if (!myId) {
   myId = Math.random().toString(36).slice(2, 8);
-  try { localStorage.setItem('fp_id', myId); } catch (e) {}
+  try { localStorage.setItem('zh_id', myId); } catch (e) {}
 }
 let room = null;
 
@@ -944,10 +1521,10 @@ function roomPublish() {
 }
 
 let lastPub = 0;
-onScoreChange = () => {
+onScoreChange = (pts) => {
   if (!room) return;
-  if (versus && versus.playing) { // a slice during my versus turn
-    versus.turnScore++;
+  if (versus && versus.playing) { // a kill during my versus turn (brutes = +5)
+    versus.turnScore += (pts || 1);
     versus.ts[versus.myIdx] = versus.turnScore;
     if (Date.now() - lastVPub > 500) { lastVPub = Date.now(); vPublish(); }
     renderVersus();
@@ -959,7 +1536,7 @@ onScoreChange = () => {
 
 function connectBroker(url, code, name) {
   return new Promise((ok, bad) => {
-    const topic = 'fruitparty1/' + code + '/';
+    const topic = 'zombiehunter1/' + code + '/';
     const client = mqtt.connect(url, {
       connectTimeout: 6000, reconnectPeriod: 2000, clean: true,
       // last-will: if we vanish, the relay clears our retained score
@@ -1007,12 +1584,12 @@ function connectBroker(url, code, name) {
   });
 }
 
-// Random three-word room codes: with live video involved, a guessable code
-// matters — 16x16x90 combos beats kids typing "ABC" on both ends.
-const CODE_W1 = ['banana', 'mango', 'cherry', 'grape', 'peach', 'kiwi', 'apple', 'berry',
-                 'melon', 'lemon', 'plum', 'coco', 'star', 'sunny', 'bubble', 'candy'];
-const CODE_W2 = ['rocket', 'panda', 'tiger', 'dragon', 'unicorn', 'robot', 'pirate', 'ninja',
-                 'wizard', 'koala', 'monkey', 'dino', 'puppy', 'kitten', 'frog', 'bunny'];
+// Random three-word room codes (spooky edition): with live video involved, a
+// guessable code matters — 16x16x90 combos beats kids typing "ABC" on both ends.
+const CODE_W1 = ['graveyard', 'crypt', 'shadow', 'raven', 'witch', 'ghost', 'skull', 'moon',
+                 'fog', 'bone', 'ghoul', 'spider', 'pumpkin', 'thorn', 'ember', 'midnight'];
+const CODE_W2 = ['bat', 'wolf', 'rat', 'owl', 'crow', 'viper', 'toad', 'spook',
+                 'fang', 'claw', 'howl', 'creep', 'lurker', 'shade', 'grim', 'hex'];
 function makeCode() {
   return CODE_W1[Math.floor(Math.random() * CODE_W1.length)] + '-' +
          CODE_W2[Math.floor(Math.random() * CODE_W2.length)] + '-' +
@@ -1025,8 +1602,8 @@ async function joinRoom() {
   const name = ($('pname').value.trim() || 'Player').slice(0, 12);
   const code = ($('pcode').value.trim() || $('genCode').textContent)
     .toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
-  if (!code) { setRoomStatus('Tap ↻ for a code, or type one 🍌'); return; }
-  try { localStorage.setItem('fp_name', name); localStorage.setItem('fp_code', code); } catch (e) {}
+  if (!code) { setRoomStatus('Tap ↻ for a code, or type one 🦇'); return; }
+  try { localStorage.setItem('zh_name', name); localStorage.setItem('zh_code', code); } catch (e) {}
   myJoinStamp = Date.now(); // my seat number for video pairing
   warnedFull = false;
   $('joinBtn').disabled = true;
@@ -1050,7 +1627,7 @@ async function joinRoom() {
       } catch (e) { /* try the next relay */ }
     }
   }
-  setRoomStatus('Room service unreachable right now — solo is just as fun! 🍉');
+  setRoomStatus('Room service unreachable right now — the solo hunt is just as fun! 🧟');
   $('joinBtn').disabled = false;
 }
 
@@ -1075,7 +1652,7 @@ async function reJoin() {
     } catch (e) { /* next relay */ }
   }
   healing = false;
-  setRoomStatus('Lost the room connection — playing solo 🍉');
+  setRoomStatus('Lost the room connection — hunting solo 🧟');
   $('joinBtn').textContent = '🔗 Join room';
   if (versus) exitVersus(false);
   renderBoard();
@@ -1101,8 +1678,8 @@ function leaveRoom() {
 
 if (ROOM_ENABLED) {
   try {
-    $('pname').value = localStorage.getItem('fp_name') || '';
-    $('pcode').value = localStorage.getItem('fp_code') || '';
+    $('pname').value = localStorage.getItem('zh_name') || '';
+    $('pcode').value = localStorage.getItem('zh_code') || '';
   } catch (e) {}
   $('joinBtn').addEventListener('click', () => room ? leaveRoom() : joinRoom());
 } else {
@@ -1202,7 +1779,7 @@ function startMyTurn() {
   versus.ts[versus.myIdx] = 0;
   versus.turnEndAt = performance.now() + TURN_MS;
   vPublish();
-  bannerShow('GO! 🍉', 900);
+  bannerShow('HUNT! 🧟', 900);
   tone(660, 1320, .25, 'triangle', .4);
   renderVersus();
 }
@@ -1265,7 +1842,7 @@ function exitVersus(clearRetained) {
 }
 
 function cancelVersus() {
-  bannerShow("We'll play again soon! 💛", 3000);
+  bannerShow("We'll hunt again soon! 🌙", 3000);
   exitVersus(true);
 }
 
@@ -1475,7 +2052,7 @@ function setVidState(st) {
   if (st === 'connecting') showChip('Connecting video… 🎥', 4000);
   else if (st === 'connected') showChip('Connected to ' + call.partnerName + '! 🎥', 3500);
   else if (st === 'failed')
-    showChip('Video could not connect — but the game still works! 🍉', 6000);
+    showChip('Video could not connect — but the game still works! 🧟', 6000);
   layoutVideos(); updateSendBadge();
 }
 
@@ -1571,7 +2148,7 @@ function checkCall() {
   if (videoBlocked) {
     if (!warnedFull) {
       warnedFull = true;
-      showChip('Video is full — two players are already on camera. Scores still sync! 🍉', 7000);
+      showChip('Video is full — two players are already on camera. Scores still sync! 🧟', 7000);
     }
     if (call) endCall(null, true);
     return;
@@ -1615,6 +2192,7 @@ function layoutVideos() {
   const on = !!(call && remoteVid.srcObject);
   const watching = !!(versus && !versus.playing && !versus.counting);
   const remoteBig = on && (watching || (vidSwap && !versus));
+  remoteIsBig = remoteBig; // the canvas hides its scenery behind a fullscreen partner
   remoteVid.style.display = on ? 'block' : 'none';
   remoteVid.className = on ? (remoteBig ? 'vid-bg' : 'vid-pip') : '';
   cam.classList.toggle('vid-pip', on && remoteBig && camOn); // selfie shrinks to the corner
@@ -1666,7 +2244,9 @@ function updateSendBadge() {
 // ---------- debug hooks for automated tests (harmless to leave in) ----------
 window.__game = {
   get score() { return score; },
-  get fruits() { return fruits; },
+  get kills() { return kills; },
+  get enemies() { return enemies; },
+  get fruits() { return enemies; }, // the original harness name — same list
   get running() { return running; },
   get camOn() { return camOn; },
   get handsStatus() { return handsStatus; },
@@ -1699,8 +2279,18 @@ window.__game = {
   get micMuted() { return micMuted; },
   setVideoTiming(ms) { VIDEO_FAIL_MS = ms; },
   videoToScreen,
-  spawnAt(x, y) { spawn(); const f = fruits[fruits.length - 1]; f.x = x; f.y = y; f.vx = f.vy = f.g = f.spin = 0; },
-  sliceAll() { while (fruits.length) sliceFruit(0, 0); },
+  spawnAt(x, y) { spawn(); const e = enemies[enemies.length - 1]; e.x = x; e.y = y; e.pin = true; },
+  // park a SPECIFIC kind at x,y (tests aim at each enemy type, esp. the brute)
+  spawnType(id, x, y) {
+    const kind = KINDS.find(k => k.id === id);
+    if (!kind) return null;
+    const size = kind.id === 'brute' ? enemySize() * 1.4 : enemySize();
+    enemies.push({ kind, size, r: size / 2, hp: kind.hp, t: 0, phase: 0, x, y,
+                   vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0,
+                   spr: getSprite(kind), pin: true });
+    return enemies[enemies.length - 1];
+  },
+  sliceAll() { while (enemies.length) { enemies[0].hp = 1; slashEnemy(0, 0); } },
   // feed synthetic index-fingertip positions ([nx,ny] in camera coords, null =
   // empty frame) through the REAL detection pipeline, one per detection tick
   feedLandmarks(frames) {
