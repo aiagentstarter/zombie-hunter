@@ -4,40 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>🧟 Zombie Hunter</title>
-<!-- one display font for the horror headings (title, banners, score);
-     if it can't load offline, everything falls back to plain cursive -->
+<title>ZOMBIE HUNTER — Survive the Night</title>
+<!-- Creepster: title screen only. Black Ops One: the in-game HUD. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Black+Ops+One&display=swap" rel="stylesheet">
+
+<!-- boot gate: devices that can't run the 3D build (no import maps = iOS < 16.4,
+     or no WebGL) go straight to the frozen 2D game; a CDN/module failure flips
+     a visible escape hatch after 8s instead of leaving a black screen -->
+<script>
+(function () {
+  var im = window.HTMLScriptElement && HTMLScriptElement.supports
+        && HTMLScriptElement.supports('importmap');
+  var gl = false;
+  try { var c = document.createElement('canvas');
+        gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) {}
+  if (!im || !gl) { location.replace('classic.html'); return; }
+  window.__bootWatch = setTimeout(function () {
+    if (!window.__threeBooted) {
+      var el = document.getElementById('bootFail');
+      if (el) el.style.display = 'flex';
+    }
+  }, 8000);
+})();
+</script>
+
+<!-- three.js, pinned — core and addons MUST share one version -->
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.min.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+} }
+</script>
 <style>
   /* ---------- layout: everything is fixed full-screen layers ---------- */
   * { margin:0; padding:0; box-sizing:border-box;
       -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   html, body { height:100%; width:100%; position:fixed; overflow:hidden;
       font-family:-apple-system, "Segoe UI", Roboto, sans-serif; }
-  /* spooky palette in one place — Silly mode (M4) will swap these */
-  :root { --toxic:#8aff5a; --toxic-dim:#39e02a; --bone:#e8f5dc; --ember:#ff9a3c;
-          --night:#04130a; }
-  body { background:linear-gradient(160deg,#0a2114,#04130a,#020705);
-      background-size:300% 300%; animation:bgshift 24s ease infinite; }
-  /* Silly mode: bright purple & orange Halloween party (toggle adds .silly) */
-  body.silly { --toxic:#ffa92e; --toxic-dim:#ff8c1a; --bone:#fff1d6; --ember:#c75cff;
-      --night:#241040;
-      background:linear-gradient(160deg,#3a1f5e,#241040,#170a2e); }
-  body.silly #score { color:#ffd9a0;
-      text-shadow:0 0 18px rgba(255,170,60,.65), 0 4px 14px rgba(0,0,0,.8); }
-  body.silly .bigbtn { color:#3a1a05; background:linear-gradient(135deg,#ffc14d,#ff8c1a);
-      box-shadow:0 0 30px rgba(255,170,60,.6), 0 10px 26px rgba(0,0,0,.5); }
-  body.silly .softbtn { color:#ffe9c9; border-color:rgba(255,200,120,.5); }
-  body.silly #cam { filter:brightness(.75) saturate(.8); }
+  /* locked palette: near-black greens, toxic glow, ember orange. nothing else. */
+  :root { --toxic:#8aff5a; --toxic-dim:#39e02a; --bone:#cfe0c4; --ember:#ff9a3c;
+          --night:#04130a; --hud:'Black Ops One', 'Arial Narrow', sans-serif;
+          --panelbg:rgba(4,14,8,.82); --paneledge:rgba(122,255,86,.28); }
+  body { background:#020705; }
   @keyframes bgshift { 0%{background-position:0% 0%} 50%{background-position:100% 100%} 100%{background-position:0% 0%} }
 
   /* mirrored selfie camera behind the game canvas (hidden until camera starts) */
-  /* the player stands IN the apocalypse: darken + desaturate the selfie feed,
-     the canvas adds the green tint and vignette on top */
-  #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover;
-         transform:scaleX(-1); display:none; filter:brightness(.5) saturate(.4); }
+  /* the camera now tracks from a small corner self-view (tap it to tuck it
+     away — it shrinks to 2px but NEVER display:none, MediaPipe needs frames) */
+  #cam { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom, 0px) + 64px);
+         width:min(26vw, 170px); height:auto; aspect-ratio:4/3; object-fit:cover;
+         transform:scaleX(-1); display:none; filter:brightness(.75) saturate(.65);
+         border-radius:4px; border:1px solid var(--paneledge);
+         box-shadow:0 6px 18px rgba(0,0,0,.6); z-index:15; cursor:pointer; }
+  #cam.self-hidden { width:2px; height:2px; opacity:0; pointer-events:auto; border:none; }
+  #selfHint { position:fixed; right:14px; bottom:calc(env(safe-area-inset-bottom, 0px) + 40px);
+         font-family:var(--hud); font-size:10px; letter-spacing:1px; color:#6f9; opacity:.6;
+         z-index:15; pointer-events:none; display:none; }
   #game { position:fixed; inset:0; touch-action:none; cursor:crosshair; }
 
   /* ---------- live video call layers ---------- */
@@ -77,112 +101,112 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
   /* ---------- HUD ---------- */
-  #score { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 4px); left:0; right:0;
-      text-align:center; font-size:min(15vw, 96px); font-weight:400;
-      font-family:'Creepster', cursive; color:#c8ffae;
-      text-shadow:0 0 18px rgba(122,255,86,.65), 0 4px 14px rgba(0,0,0,.8);
+  /* HUD: monochrome green stencil on dark glass — minimal, gritty, no emoji */
+  #score { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 6px); left:0; right:0;
+      text-align:center; font-size:min(11vw, 72px); font-weight:400;
+      font-family:var(--hud); color:#9fe879; letter-spacing:2px;
+      text-shadow:0 0 14px rgba(122,255,86,.5), 0 3px 10px rgba(0,0,0,.9);
       pointer-events:none; transition:transform .12s ease-out; z-index:10; }
-  #score.bump { transform:scale(1.22); }
+  #score.bump { transform:scale(1.18); }
   #banner { position:fixed; top:34%; left:0; right:0; text-align:center;
-      font-size:min(19vw, 124px); font-weight:400; font-family:'Creepster', cursive;
-      color:var(--toxic); text-shadow:0 0 26px rgba(122,255,86,.55), 0 6px 18px rgba(0,0,0,.75);
+      font-size:min(11vw, 76px); font-weight:400; font-family:var(--hud);
+      color:var(--toxic); letter-spacing:3px; text-transform:uppercase;
+      text-shadow:0 0 22px rgba(122,255,86,.5), 0 5px 16px rgba(0,0,0,.85);
       pointer-events:none; z-index:11;
-      opacity:0; transform:scale(.3); transition:opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
+      opacity:0; transform:scale(.5); transition:opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
   #banner.show { opacity:1; transform:scale(1); }
-  /* combo callout (x2! x3!) — lives just under the score so it never
-     fights the big banner */
-  #combo { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px + min(15vw, 96px));
-      left:0; right:0; text-align:center; font-family:'Creepster', cursive;
-      font-size:min(11vw, 64px); color:var(--ember);
-      text-shadow:0 0 18px rgba(255,154,60,.6), 0 4px 12px rgba(0,0,0,.8);
-      pointer-events:none; z-index:10; opacity:0; transform:scale(.4);
+  /* combo callout (x2 x3) under the score, never fighting the banner */
+  #combo { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 14px + min(11vw, 72px));
+      left:0; right:0; text-align:center; font-family:var(--hud);
+      font-size:min(7vw, 40px); color:var(--ember); letter-spacing:2px;
+      text-shadow:0 0 14px rgba(255,154,60,.55), 0 3px 10px rgba(0,0,0,.9);
+      pointer-events:none; z-index:10; opacity:0; transform:scale(.5);
       transition:opacity .15s, transform .25s cubic-bezier(.2,1.8,.4,1); }
-  #combo.show { opacity:1; transform:scale(1) rotate(-4deg); }
+  #combo.show { opacity:1; transform:scale(1); }
   #chip { position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 64px); left:50%;
-      transform:translateX(-50%); background:rgba(0,0,0,.5); color:#fff; padding:8px 18px;
-      border-radius:999px; font-size:16px; max-width:92vw; text-align:center;
+      transform:translateX(-50%); background:var(--panelbg); color:#cfe0c4; padding:8px 16px;
+      border:1px solid var(--paneledge); border-radius:4px; font-size:13px;
+      font-family:var(--hud); letter-spacing:1px; max-width:92vw; text-align:center;
       pointer-events:none; opacity:0; transition:opacity .4s; z-index:12; }
 
   /* live hand-tracking status pill: green = hand seen, yellow = looking, gray = touch */
   #pill { position:fixed; bottom:calc(env(safe-area-inset-bottom, 0px) + 12px); left:12px;
-      padding:8px 16px; border-radius:999px; font-size:16px; font-weight:700; color:#fff;
-      z-index:12; pointer-events:none; transition:background .3s; }
-  #pill.p-green { background:rgba(27,158,84,.88); }
-  #pill.p-yellow { background:rgba(196,144,10,.92); }
-  #pill.p-gray { background:rgba(90,90,100,.85); }
+      padding:7px 14px; border-radius:4px; font-size:13px; letter-spacing:2px;
+      font-family:var(--hud); color:#dfeede; z-index:12; pointer-events:none;
+      transition:background .3s; border:1px solid rgba(0,0,0,.4); }
+  #pill.p-green { background:rgba(18,92,44,.88); border-color:rgba(122,255,86,.4); }
+  #pill.p-yellow { background:rgba(140,104,8,.9); border-color:rgba(255,210,80,.4); }
+  #pill.p-gray { background:rgba(40,48,42,.88); border-color:rgba(160,180,160,.25); }
   #hint { position:fixed; top:20%; left:50%; transform:translateX(-50%); max-width:88vw;
-      background:rgba(0,0,0,.55); color:#ffe45e; font-size:min(6vw, 26px); font-weight:800;
-      padding:14px 22px; border-radius:18px; text-align:center; z-index:12;
+      background:var(--panelbg); color:#ffd24f; font-size:min(4.5vw, 20px);
+      font-family:var(--hud); letter-spacing:1px; border:1px solid var(--paneledge);
+      padding:12px 20px; border-radius:6px; text-align:center; z-index:12;
       pointer-events:none; opacity:0; transition:opacity .4s; }
   #hint.show { opacity:1; }
 
   /* ---------- buttons & panels ---------- */
-  button { font-family:inherit; cursor:pointer; }
-  #gear { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 8px); right:12px;
-      width:54px; height:54px; font-size:28px; border:none; border-radius:50%;
-      background:rgba(0,0,0,.35); color:#fff; z-index:20; display:none; }
+  button { font-family:var(--hud); cursor:pointer; letter-spacing:1px; }
+  #gear { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px); right:12px;
+      padding:9px 14px; font-size:13px; letter-spacing:2px; border:1px solid var(--paneledge);
+      border-radius:4px; background:var(--panelbg); color:#9fe879; z-index:20; display:none; }
   .hidden { display:none !important; }
   #panel { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-      background:rgba(6,18,10,.94); color:#fff; border-radius:20px; padding:22px 26px;
-      width:min(92vw, 420px); z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.6),
-      0 0 0 1px rgba(122,255,86,.22); }
-  #panel h3 { margin-bottom:14px; font-size:22px; }
-  #panel label { display:flex; align-items:center; gap:10px; font-size:22px; margin:10px 0 18px; }
-  #audState { font-size:13px; opacity:.75; margin:-8px 0 12px; min-height:16px; }
-  #panel input[type=range] { flex:1; height:40px; }
-  #closePanel { display:block; width:100%; padding:14px; font-size:20px; font-weight:700;
-      border:none; border-radius:12px; background:#2faa1f; color:#fff; }
-  #roomSec { border-top:1px solid rgba(255,255,255,.25); margin:16px 0; padding-top:12px; }
-  #roomSec input { display:block; width:100%; margin:8px 0; padding:12px; font-size:18px;
-      border:none; border-radius:10px; background:rgba(255,255,255,.92); color:#222; }
+      background:var(--panelbg); color:#cfe0c4; border-radius:8px; padding:22px 26px;
+      width:min(92vw, 420px); z-index:30; box-shadow:0 12px 40px rgba(0,0,0,.7),
+      0 0 0 1px var(--paneledge); font-family:var(--hud); }
+  #panel h3 { margin-bottom:14px; font-size:17px; letter-spacing:2px; color:#9fe879; }
+  #panel label { display:flex; align-items:center; gap:10px; font-size:18px; margin:10px 0 18px; }
+  #audState { font-size:11px; opacity:.7; margin:-8px 0 12px; min-height:16px; letter-spacing:1px; }
+  #panel input[type=range] { flex:1; height:40px; accent-color:#39e02a; }
+  #closePanel { display:block; width:100%; padding:13px; font-size:16px;
+      border:1px solid var(--paneledge); border-radius:4px;
+      background:rgba(18,92,44,.6); color:#cfe8c8; }
+  #roomSec { border-top:1px solid var(--paneledge); margin:16px 0; padding-top:12px; }
+  #roomSec input { display:block; width:100%; margin:8px 0; padding:11px; font-size:16px;
+      border:1px solid var(--paneledge); border-radius:4px;
+      background:rgba(8,24,14,.85); color:#cfe8c8; font-family:var(--hud); letter-spacing:1px; }
   #codeRow { display:flex; align-items:center; gap:8px; margin:4px 0 2px; }
-  #genCode { flex:1; font-size:clamp(17px, 5vw, 24px); font-weight:900; letter-spacing:.5px;
-      background:rgba(255,255,255,.12); border:1px dashed rgba(255,255,255,.45);
-      padding:10px 12px; border-radius:12px; text-align:center; }
-  #newCode { width:46px; height:46px; font-size:22px; border:none; border-radius:10px;
-      background:rgba(255,255,255,.18); color:#fff; }
-  #roomSec .tiny2 { font-size:12px; opacity:.7; margin:2px 0 8px; }
-  #joinBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
-      border-radius:10px; background:#2e7d4f; color:#fff; margin:6px 0 4px; }
-  #roomStatus { font-size:14px; opacity:.85; min-height:18px; margin-bottom:8px; }
+  #genCode { flex:1; font-size:clamp(14px, 4vw, 19px); letter-spacing:1px;
+      background:rgba(8,24,14,.7); border:1px dashed var(--paneledge); color:#9fe879;
+      padding:10px 12px; border-radius:4px; text-align:center; font-family:var(--hud); }
+  #newCode { width:46px; height:46px; font-size:20px; border:1px solid var(--paneledge);
+      border-radius:4px; background:rgba(8,24,14,.7); color:#9fe879; }
+  #roomSec .tiny2 { font-size:11px; opacity:.65; margin:2px 0 8px; letter-spacing:.5px; }
+  #joinBtn { width:100%; padding:12px; font-size:15px; border:1px solid var(--paneledge);
+      border-radius:4px; background:rgba(18,92,44,.55); color:#cfe8c8; margin:6px 0 4px; }
+  #roomStatus { font-size:12px; opacity:.85; min-height:16px; margin-bottom:8px; letter-spacing:1px; }
   #board { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 10px); left:12px;
       z-index:10; pointer-events:none; display:flex; flex-direction:column; gap:6px; }
-  #board .prow { background:rgba(0,0,0,.45); color:#fff; padding:6px 14px; font-size:18px;
-      border-radius:999px; }
-  #board .prow.me { background:rgba(47,170,31,.6); }
+  #board .prow { background:var(--panelbg); color:#cfe0c4; padding:5px 12px; font-size:14px;
+      border-radius:4px; border:1px solid rgba(122,255,86,.15); font-family:var(--hud);
+      letter-spacing:1px; }
+  #board .prow.me { border-color:rgba(122,255,86,.45); color:#9fe879; }
 
   /* ---------- versus mode ---------- */
-  #vsBtn { width:100%; padding:12px; font-size:18px; font-weight:700; border:none;
-      border-radius:10px; background:linear-gradient(135deg,#7a2bd0,#2faa1f); color:#fff;
-      margin:2px 0 8px; }
+  #vsBtn { width:100%; padding:12px; font-size:15px; border:1px solid var(--paneledge);
+      border-radius:4px; background:rgba(60,28,8,.6); color:#ffb066; margin:2px 0 8px; }
   #vov { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
       justify-content:center; gap:10px; z-index:15; pointer-events:none; text-align:center;
       background:rgba(10,5,40,.35); padding:20px; }
-  #vov .v1 { font-size:min(8vw, 46px); font-weight:900; color:#fff;
-      text-shadow:0 4px 14px rgba(0,0,0,.6); }
-  #vov .v2 { font-size:min(30vw, 200px); font-weight:400; font-family:'Creepster', cursive;
+  #vov .v1 { font-size:min(6.5vw, 38px); font-family:var(--hud); color:#dfeede;
+      letter-spacing:2px; text-transform:uppercase; text-shadow:0 4px 14px rgba(0,0,0,.8); }
+  #vov .v2 { font-size:min(26vw, 170px); font-weight:400; font-family:var(--hud);
       color:var(--toxic); line-height:1.05;
-      text-shadow:0 0 30px rgba(122,255,86,.5), 0 8px 24px rgba(0,0,0,.65); }
-  #vov .v3 { font-size:min(4.5vw, 20px); color:#fff; opacity:.85; }
+      text-shadow:0 0 26px rgba(122,255,86,.45), 0 8px 24px rgba(0,0,0,.75); }
+  #vov .v3 { font-size:min(4vw, 17px); color:#cfe0c4; opacity:.85; font-family:var(--hud);
+      letter-spacing:1px; }
   #tbar { position:fixed; top:0; left:0; height:12px; width:100%; display:none; z-index:14;
       background:linear-gradient(90deg,#2faa1f,#a6ff4f); border-radius:0 8px 8px 0;
       box-shadow:0 0 14px rgba(122,255,86,.55); }
 
   /* ---------- start screen: the poster IS the backdrop ----------
-     three background layers, top to bottom: a darkening wash so the UI
-     reads, the poster art, and a plain dark gradient in case poster.png
-     is missing (the game must never depend on the art) */
+     darkening wash over the poster art over a plain dark gradient (the
+     game must never depend on the art). Creepster lives here, and only here. */
   #start { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column;
       align-items:center; justify-content:center; gap:16px; text-align:center; padding:24px;
-      background:linear-gradient(rgba(3,10,5,.45), rgba(2,6,3,.72)),
+      background:linear-gradient(rgba(3,10,5,.45), rgba(2,6,3,.78)),
                  url('poster.png') center/cover no-repeat,
                  linear-gradient(170deg,#0a1f10,#04130a 60%,#020806); }
-  /* Silly mode: the poster makes way for a friendly cartoon canvas title */
-  body.silly #start { background:linear-gradient(170deg,#3a1f5e,#241040 60%,#170a2e); }
-  #titleArt { position:absolute; inset:0; width:100%; height:100%; display:none; }
-  body.silly #titleArt { display:block; }
-  #start > :not(#titleArt) { position:relative; } /* UI paints above the art canvas */
-  body.silly #start h1 { animation:none; } /* no scary flicker for the kids */
   #start h1 { font-family:'Creepster', cursive; font-weight:400; color:var(--toxic);
       font-size:min(17vw, 96px); letter-spacing:3px; line-height:1;
       text-shadow:0 0 30px rgba(122,255,86,.6), 0 0 70px rgba(122,255,86,.35),
@@ -193,19 +217,41 @@
   #start .subtitle { font-family:'Creepster', cursive; color:var(--bone);
       font-size:min(7vw, 32px); letter-spacing:5px;
       text-shadow:0 0 16px rgba(232,245,220,.45), 0 3px 10px rgba(0,0,0,.9); }
-  #start p { color:#dfe; font-size:min(5vw, 21px); max-width:520px;
-      text-shadow:0 2px 8px rgba(0,0,0,.9); }
-  #start .tiny { font-size:13px; opacity:.7; }
-  .bigbtn { font-size:min(8vw, 34px); font-weight:400; font-family:'Creepster', cursive;
-      letter-spacing:3px; color:#06220a; border:none; padding:18px 52px; border-radius:999px;
-      background:linear-gradient(135deg,#9dff5e,#2faa1f);
-      box-shadow:0 0 30px rgba(122,255,86,.55), 0 10px 26px rgba(0,0,0,.55);
-      animation:throb 2.1s ease-in-out infinite; }
-  @keyframes throb { 0%,100%{box-shadow:0 0 22px rgba(122,255,86,.45), 0 10px 26px rgba(0,0,0,.55)}
-      50%{box-shadow:0 0 48px rgba(140,255,95,.9), 0 10px 26px rgba(0,0,0,.55)} }
+  #start p { color:#cfe0c4; font-size:min(4.2vw, 17px); max-width:520px;
+      font-family:var(--hud); letter-spacing:.5px; text-shadow:0 2px 8px rgba(0,0,0,.9); }
+  #start .tiny { font-size:11px; opacity:.65; }
+  #classicLink { font-family:var(--hud); letter-spacing:1px; }
+  .bigbtn { font-size:min(6.5vw, 30px); font-family:var(--hud); letter-spacing:3px;
+      color:#9fe879; border:1px solid rgba(122,255,86,.55); padding:16px 46px;
+      border-radius:6px; background:rgba(4,16,8,.78);
+      box-shadow:0 0 24px rgba(122,255,86,.3), inset 0 0 18px rgba(122,255,86,.08),
+                 0 10px 26px rgba(0,0,0,.6);
+      animation:throb 2.4s ease-in-out infinite; }
+  @keyframes throb { 0%,100%{box-shadow:0 0 16px rgba(122,255,86,.22), 0 10px 26px rgba(0,0,0,.6)}
+      50%{box-shadow:0 0 36px rgba(140,255,95,.55), 0 10px 26px rgba(0,0,0,.6)} }
   .bigbtn:active { transform:scale(.95); }
-  .softbtn { font-size:min(4.5vw, 19px); color:#cfe8c8; border:1px solid rgba(157,255,176,.45);
-      padding:12px 26px; border-radius:999px; background:rgba(6,18,10,.55); }
+  .softbtn { font-size:min(4vw, 16px); color:#cfe8c8; border:1px solid rgba(157,255,176,.35);
+      padding:11px 24px; border-radius:6px; background:rgba(4,14,8,.6);
+      font-family:var(--hud); letter-spacing:2px; }
+
+  /* ---------- 3D-only overlays ---------- */
+  #bootFail { position:fixed; inset:0; z-index:99; display:none; flex-direction:column;
+      align-items:center; justify-content:center; gap:18px; background:#020705;
+      color:#cfe0c4; font-family:var(--hud); letter-spacing:1px; text-align:center;
+      padding:24px; }
+  #bootFail a, #bootFail button { font-size:18px; color:#9fe879; padding:12px 28px;
+      border:1px solid var(--paneledge); border-radius:6px; background:rgba(4,16,8,.8);
+      text-decoration:none; }
+  #scare { position:fixed; inset:0; z-index:14; pointer-events:none; opacity:0;
+      transition:opacity .12s; }
+  #scare.show { opacity:1; transition:opacity .05s; }
+  #fx3d { position:fixed; inset:0; z-index:9; pointer-events:none; overflow:hidden; }
+  #fx3d .ptext { position:absolute; font-family:var(--hud); color:#aaff7a;
+      font-size:26px; letter-spacing:2px; text-shadow:0 0 12px rgba(122,255,86,.6),
+      0 2px 6px rgba(0,0,0,.9); transform:translate(-50%,-50%); opacity:0; }
+  #fx3d .ptext.go { animation:ptfloat .9s ease-out forwards; }
+  @keyframes ptfloat { 0%{opacity:1; transform:translate(-50%,-50%)}
+      100%{opacity:0; transform:translate(-50%,-130px)} }
 </style>
 </head>
 <body data-pip="br">
@@ -213,8 +259,8 @@
 <video id="cam" playsinline muted autoplay></video>
 <video id="remoteVid" playsinline autoplay></video>
 <canvas id="game"></canvas>
-<div id="pipTag"><span id="pipName"></span><button id="muteBtn" aria-label="Mute microphone">🎤</button></div>
-<div id="sendBadge"><span class="dot"></span><span id="sendTxt">you're on camera</span></div>
+<div id="pipTag"><span id="pipName"></span><button id="muteBtn" aria-label="Mute microphone">MIC</button></div>
+<div id="sendBadge"><span class="dot"></span><span id="sendTxt">ON CAMERA</span></div>
 
 <div id="score">0</div>
 <div id="banner"></div>
@@ -223,23 +269,22 @@
 <div id="pill" class="hidden"></div>
 <div id="hint"></div>
 
-<button id="gear" aria-label="Settings">⚙️</button>
+<button id="gear" aria-label="Settings">MENU</button>
 <div id="panel" class="hidden">
-  <h3>🧟 Zombie speed</h3>
-  <label>🐢 <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> 🐇</label>
-  <label>🎉 Silly mode <input id="sillyChk" type="checkbox" style="width:30px;height:30px"></label>
+  <h3>ZOMBIE SPEED</h3>
+  <label>SLOW <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> FAST</label>
   <div id="audState"></div>
   <div id="roomSec">
-    <h3>🪦 Hunt together</h3>
-    <div id="codeRow"><span id="genCode"></span><button id="newCode" aria-label="New code">↻</button></div>
+    <h3>HUNT TOGETHER</h3>
+    <div id="codeRow"><span id="genCode"></span><button id="newCode" aria-label="New code">&#8635;</button></div>
     <p class="tiny2">Share this code with the other device — or type your own below.</p>
     <input id="pname" maxlength="12" placeholder="Your name" autocomplete="off">
     <input id="pcode" maxlength="24" placeholder="Custom code (optional)" autocapitalize="characters" autocomplete="off">
-    <button id="joinBtn">🔗 Join room</button>
-    <button id="vsBtn" class="hidden">⚔️ Versus — take turns! (best of 3)</button>
+    <button id="joinBtn">JOIN ROOM</button>
+    <button id="vsBtn" class="hidden">VERSUS — TAKE TURNS (BEST OF 3)</button>
     <div id="roomStatus"></div>
   </div>
-  <button id="closePanel">Done ✔</button>
+  <button id="closePanel">DONE</button>
 </div>
 
 <div id="board"></div>
@@ -251,44 +296,69 @@
 <div id="tbar"></div>
 
 <div id="start">
-  <canvas id="titleArt"></canvas>
   <h1>Zombie Hunter</h1>
   <p class="subtitle">— Survive the night —</p>
-  <p>Wave your hand (or swipe a finger) to slash the horde. No lives, no game over — the night is yours.</p>
-  <button id="btnCam" class="bigbtn">🌙 Start</button>
-  <button id="btnTouch" class="softbtn">👆 Hunt without camera</button>
-  <button id="sillyStart" class="softbtn">👻 Silly mode: OFF</button>
-  <p class="tiny">Start uses the camera so you can slash by waving — video never leaves your device.</p>
-  <a id="classicLink" href="classic.html" style="color:#9db; font-size:13px; opacity:.75;">Classic 2D mode</a>
+  <p>Wave your hand (or swipe a finger) to slash what comes out of the fog. No lives. No game over. Only the night.</p>
+  <button id="btnCam" class="bigbtn">START — CAMERA ON</button>
+  <button id="btnTouch" class="softbtn">HUNT WITHOUT CAMERA</button>
+  <p class="tiny">The camera lets you slash by waving — video never leaves your device.</p>
+  <a id="classicLink" href="classic.html" style="color:#9db; font-size:12px; opacity:.7;">CLASSIC 2D MODE</a>
 </div>
+
+<div id="bootFail">
+  <div>THE 3D NIGHT COULD NOT LOAD</div>
+  <a href="classic.html">PLAY CLASSIC MODE</a>
+  <button onclick="location.reload()">RETRY</button>
+</div>
+
+<!-- claw scare: three streaks, near-black with a toxic rim — never red -->
+<svg id="scare" viewBox="0 0 100 100" preserveAspectRatio="none">
+  <g fill="none" stroke-linecap="round">
+    <path d="M22 8 Q 50 38 36 96" stroke="rgba(122,255,86,.30)" stroke-width="7"/>
+    <path d="M46 4 Q 64 44 56 99" stroke="rgba(122,255,86,.30)" stroke-width="8"/>
+    <path d="M72 10 Q 82 48 78 94" stroke="rgba(122,255,86,.30)" stroke-width="6"/>
+    <path d="M22 8 Q 50 38 36 96" stroke="rgba(3,10,5,.92)" stroke-width="4.5"/>
+    <path d="M46 4 Q 64 44 56 99" stroke="rgba(3,10,5,.92)" stroke-width="5.5"/>
+    <path d="M72 10 Q 82 48 78 94" stroke="rgba(3,10,5,.92)" stroke-width="4"/>
+  </g>
+</svg>
+<div id="fx3d"></div>
 
 <script type="module">
 /* =====================================================================
-   🧟 ZOMBIE HUNTER — a no-lose horde-slashing game (Fruit Party engine,
-   reskinned). No lives, no game over: the night just keeps coming.
-   Module script: same code, strict mode — the 3D rebuild lands here.
+   ZOMBIE HUNTER 3D — first-person night street. No lives, no game over:
+   the things in the fog just keep coming. The hand tracking, audio,
+   room, Versus and video systems are the proven engine from the 2D
+   game (alive forever in classic.html), ported behavior-identical.
    ===================================================================== */
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- tiny helpers ----------
 const $ = id => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
-const canvas = $('game'), ctx = canvas.getContext('2d');
+const canvas = $('game'); // WebGL canvas — no 2D context may ever touch it
 const cam = $('cam');
 
-// ---------- canvas sizing (capped so mid-tier iPads keep their fps) ----------
-let W = 0, H = 0, DPR = 1, quality = 1;
+// ---------- sizing: W/H are CSS pixels ----------
+// All input, tracking and hit-testing live in CSS pixel space; the GPU's
+// pixel ratio is a quality knob that can never change a hitbox.
+let W = innerWidth, H = innerHeight;
 function resize() {
   W = innerWidth; H = innerHeight;
-  let dpr = Math.min(devicePixelRatio || 1, 2);
-  dpr = Math.min(dpr, Math.sqrt(3.6e6 / (W * H))); // never exceed ~3.6M canvas pixels
-  DPR = Math.max(1, dpr * quality);
-  canvas.width = Math.round(W * DPR);
-  canvas.height = Math.round(H * DPR);
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (renderer) {
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    renderer.setSize(W, H);
+    composer.setSize(W, H);
+  }
 }
-resize();
 addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 300)); // iOS reports sizes late
 if (window.visualViewport) visualViewport.addEventListener('resize', resize);
@@ -385,7 +455,7 @@ function updateAudState() {
   if (!el || $('panel').classList.contains('hidden')) return;
   let sess = '';
   try { if (navigator.audioSession) sess = ' · session: ' + navigator.audioSession.type; } catch (e) {}
-  el.textContent = '🔊 Audio engine: ' + (AC ? AC.state : 'not started — tap Start first') + sess;
+  el.textContent = 'AUDIO: ' + (AC ? AC.state : 'not started — tap START first') + sess;
 }
 setInterval(updateAudState, 1000);
 function tone(f0, f1, dur, type, vol, delay) {
@@ -491,22 +561,10 @@ function playHowl() { // lonely wolf: rise, hold with vibrato, fall away
   o.connect(g).connect(AC.destination);
   o.start(t); o.stop(t + 1.7);
 }
-function playGiggle() { // Silly mode: quick rising hee-hee-hee
-  [0, .09, .18].forEach((d, i) => tone(620 + i * 130, 900 + i * 130, .07, 'sine', .2, d));
-}
-function playBoing(big) { // Silly mode: cartoon spring
-  if (!AC) return;
-  const t = AC.currentTime, dur = big ? .5 : .3;
-  const o = AC.createOscillator(), g = AC.createGain();
-  o.type = 'triangle';
-  o.frequency.setValueAtTime(big ? 90 : 160, t);
-  o.frequency.exponentialRampToValueAtTime(big ? 460 : 720, t + dur * .4);
-  o.frequency.exponentialRampToValueAtTime(big ? 130 : 240, t + dur);
-  g.gain.setValueAtTime(.0001, t);
-  g.gain.exponentialRampToValueAtTime(big ? .38 : .24, t + .05);
-  g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  o.connect(g).connect(AC.destination);
-  o.start(t); o.stop(t + dur + .05);
+function playClaw() { // an enemy got too close: three fabric-rip rasps
+  noiseBurst(.22, 'highpass', 1800, 1.2, .4, 0);
+  noiseBurst(.18, 'highpass', 2200, 1.2, .35, .06);
+  noiseBurst(.2, 'highpass', 1500, 1.2, .38, .12);
 }
 function playCheer() {
   [523, 659, 784, 1047].forEach((fq, i) => tone(fq, fq, .25, 'triangle', .3, i * .09));
@@ -514,273 +572,19 @@ function playCheer() {
 }
 
 // ---------- game state ----------
-let silly = false; // Silly mode (Milestone 4): bright palette, goofy enemies
-let enemies = [], pieces = [], particles = [];
-let score = 0, kills = 0, running = false, nextSpawn = 0, MAXF = 6;
+let enemies = [];
+let score = 0, kills = 0, running = false, nextSpawn = 0, MAXF = 8;
 
-/* ---------- the horde: five canvas-drawn enemies ----------
-   Each kind says how it moves, how many slashes it takes (hp), what a
-   kill is worth (pts), and how often it appears (w = spawn weight).
-   Bodies are painted ONCE into an offscreen sprite canvas and stamped
-   every frame — far cheaper than re-drawing shapes 60 times a second.
-   eyes = where the glowing eyes sit (sprite coords), so the game can
-   pulse them on top of the stamped body. */
+/* ---------- the horde: five enemy kinds (data) ----------
+   hp / pts / spawn weight are the proven 2D values. How each kind looks
+   and moves in 3D lives in the world section (next milestone). */
 const KINDS = [
-  { id:'shambler', w:30, hp:1, pts:1, px:240, eyes:[[104,80],[137,78]],  paint: paintShambler },
-  { id:'crawler',  w:22, hp:1, pts:1, px:240, eyes:[[50,140],[70,138]],  paint: paintCrawler },
-  { id:'ghoul',    w:22, hp:1, pts:1, px:240, eyes:[[108,84],[132,84]],  paint: paintGhoul },
-  { id:'bat',      w:19, hp:1, pts:1, px:240, eyes:[[111,100],[129,100]],paint: paintBat },
-  { id:'brute',    w:7,  hp:3, pts:5, px:300, eyes:[[138,104],[162,104]],paint: paintBrute },
+  { id:'shambler', w:30, hp:1, pts:1 },
+  { id:'crawler',  w:22, hp:1, pts:1 },
+  { id:'ghoul',    w:22, hp:1, pts:1 },
+  { id:'bat',      w:19, hp:1, pts:1 },
+  { id:'brute',    w:7,  hp:3, pts:5 },
 ];
-
-// the poster palette, named once so every painter agrees
-const INK = { body:'#1d3322', body2:'#27452c', limb:'#142417', dark:'#0a140c',
-              rim:'rgba(157,255,176,.4)', teeth:'#cfe0c4', accent:'#7dff5e',
-              wing:'#13241a', ghost:'#2c4a33' };
-
-// glowing green eye: soft halo + bright iris + a dead little pupil
-function eyeGlow(g, x, y, r) {
-  const halo = g.createRadialGradient(x, y, 0, x, y, r * 3);
-  halo.addColorStop(0, 'rgba(122,255,86,.85)');
-  halo.addColorStop(1, 'rgba(122,255,86,0)');
-  g.fillStyle = halo;
-  g.beginPath(); g.arc(x, y, r * 3, 0, 7); g.fill();
-  g.fillStyle = '#d8ffc2';
-  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  g.fillStyle = '#0a140c';
-  g.beginPath(); g.arc(x, y + r * .15, r * .45, 0, 7); g.fill();
-}
-// Silly mode faces: big white googly eyes and an open derpy grin
-function cuteEye(g, x, y, r) {
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, r * 1.8, 0, 7); g.fill();
-  g.fillStyle = '#26143a'; g.beginPath(); g.arc(x + r * .4, y + r * .35, r * .85, 0, 7); g.fill();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(x + r * .15, y + r * .05, r * .32, 0, 7); g.fill();
-}
-function cuteSmile(g, x, y, w) {
-  g.fillStyle = '#5a2438';
-  g.beginPath(); g.arc(x, y, w, .15, Math.PI - .15); g.closePath(); g.fill();
-  g.fillStyle = '#ff7e9e'; // tongue
-  g.beginPath(); g.ellipse(x, y + w * .55, w * .45, w * .28, 0, 0, 7); g.fill();
-}
-function tri(g, x1, y1, x2, y2, x3, y3) {
-  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.lineTo(x3, y3);
-  g.closePath(); g.fill();
-}
-function blob(g, x, y, rx, ry) {
-  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.fill();
-}
-
-// shambling zombie — arms up, jagged hem like it's tearing out of the dirt
-function paintShambler(g, P, cute) {
-  g.lineCap = 'round';
-  g.strokeStyle = P.limb; g.lineWidth = 17;                    // raised crooked arms
-  g.beginPath(); g.moveTo(82, 138); g.lineTo(54, 96); g.lineTo(44, 66); g.stroke();
-  g.beginPath(); g.moveTo(158, 138); g.lineTo(186, 102); g.lineTo(200, 74); g.stroke();
-  g.fillStyle = P.limb;
-  blob(g, 44, 62, 11, 11); blob(g, 200, 70, 11, 11);           // hands
-  g.lineWidth = 5;
-  for (const [hx, hy] of [[44, 62], [200, 70]])                // grabby finger nubs
-    for (let f = -1; f <= 1; f++) {
-      g.beginPath(); g.moveTo(hx + f * 6, hy - 4); g.lineTo(hx + f * 8, hy - 14); g.stroke();
-    }
-  g.fillStyle = P.body;                                        // torso, jagged hem
-  g.beginPath(); g.moveTo(66, 232); g.lineTo(64, 150);
-  g.quadraticCurveTo(66, 118, 120, 114); g.quadraticCurveTo(176, 118, 176, 150);
-  g.lineTo(174, 232);
-  for (let x = 174; x > 66; x -= 18) { g.lineTo(x - 9, 216); g.lineTo(x - 18, 232); }
-  g.closePath(); g.fill();
-  g.fillStyle = P.limb;                                        // ragged patches
-  tri(g, 100, 150, 128, 158, 108, 182); blob(g, 148, 192, 12, 12);
-  g.fillStyle = P.body2;                                       // head
-  blob(g, 120, 84, 40, 40);
-  g.strokeStyle = P.rim; g.lineWidth = 5;                      // moonlit rim
-  g.beginPath(); g.arc(120, 84, 37, -.7, .8); g.stroke();
-  if (cute) {
-    cuteSmile(g, 120, 100, 19);
-    cuteEye(g, 104, 80, 6.5); cuteEye(g, 137, 78, 6.5);
-    return;
-  }
-  g.strokeStyle = P.dark; g.lineWidth = 4;                     // skull scar
-  g.beginPath(); g.moveTo(94, 58); g.lineTo(112, 66); g.stroke();
-  g.beginPath(); g.moveTo(100, 56); g.lineTo(102, 68); g.stroke();
-  g.strokeStyle = P.dark; g.lineWidth = 5;                     // stitched mouth
-  g.beginPath(); g.moveTo(102, 108); g.quadraticCurveTo(120, 116, 140, 106); g.stroke();
-  g.lineWidth = 3;
-  for (const sx of [110, 121, 132]) {
-    g.beginPath(); g.moveTo(sx, 104); g.lineTo(sx + 2, 116); g.stroke();
-  }
-  eyeGlow(g, 104, 80, 6.5); eyeGlow(g, 137, 78, 6.5);
-}
-
-// crawler — drags itself sideways, one arm reaching, legs trailing rags
-function paintCrawler(g, P, cute) {
-  g.lineCap = 'round';
-  g.strokeStyle = P.limb;                                      // trailing legs
-  g.lineWidth = 13; g.beginPath(); g.moveTo(186, 176); g.lineTo(224, 196); g.stroke();
-  g.lineWidth = 10; g.beginPath(); g.moveTo(192, 186); g.lineTo(230, 214); g.stroke();
-  g.fillStyle = P.body;                                        // low-slung body
-  blob(g, 142, 172, 64, 30);
-  g.fillStyle = P.body2;                                       // spine bumps
-  blob(g, 118, 146, 9, 9); blob(g, 140, 143, 10, 10); blob(g, 162, 146, 9, 9);
-  g.strokeStyle = P.limb; g.lineWidth = 15;                    // reaching arm
-  g.beginPath(); g.moveTo(92, 176); g.lineTo(48, 186); g.lineTo(20, 204); g.stroke();
-  g.fillStyle = P.limb; blob(g, 18, 206, 10, 10);
-  g.lineWidth = 5;
-  for (let f = 0; f < 3; f++) {
-    g.beginPath(); g.moveTo(14 + f * 5, 200); g.lineTo(8 + f * 6, 192); g.stroke();
-  }
-  g.fillStyle = P.body2;                                       // head jutting forward
-  blob(g, 62, 148, 34, 34);
-  g.strokeStyle = P.rim; g.lineWidth = 4;                      // moonlit back
-  g.beginPath(); g.moveTo(100, 144); g.quadraticCurveTo(142, 134, 188, 148); g.stroke();
-  if (cute) {
-    cuteSmile(g, 58, 162, 14);
-    cuteEye(g, 50, 140, 5.5); cuteEye(g, 70, 138, 5.5);
-    return;
-  }
-  g.fillStyle = P.dark;                                        // hanging open jaw
-  g.beginPath(); g.moveTo(34, 156); g.quadraticCurveTo(50, 180, 78, 170);
-  g.lineTo(74, 154); g.closePath(); g.fill();
-  g.fillStyle = P.teeth;
-  tri(g, 44, 160, 52, 160, 48, 168); tri(g, 58, 162, 66, 162, 62, 170);
-  eyeGlow(g, 50, 140, 5.5); eyeGlow(g, 70, 138, 5.5);
-}
-
-// ghoul — a wraith that floats up, hem fading into wisps
-function paintGhoul(g, P, cute) {
-  g.fillStyle = P.ghost;                                       // flowing sheet
-  g.beginPath(); g.moveTo(78, 196);
-  g.quadraticCurveTo(64, 120, 86, 82); g.quadraticCurveTo(100, 52, 120, 52);
-  g.quadraticCurveTo(140, 52, 154, 82); g.quadraticCurveTo(176, 120, 162, 196);
-  g.quadraticCurveTo(150, 180, 142, 200); g.quadraticCurveTo(132, 182, 124, 204);
-  g.quadraticCurveTo(112, 184, 104, 202); g.quadraticCurveTo(94, 182, 78, 196);
-  g.closePath(); g.fill();
-  g.fillStyle = P.body2;                                       // drooping arm flaps
-  g.beginPath(); g.moveTo(84, 110); g.quadraticCurveTo(48, 128, 42, 164);
-  g.quadraticCurveTo(60, 156, 72, 160); g.closePath(); g.fill();
-  g.beginPath(); g.moveTo(156, 110); g.quadraticCurveTo(192, 128, 198, 164);
-  g.quadraticCurveTo(180, 156, 168, 160); g.closePath(); g.fill();
-  const fade = g.createLinearGradient(0, 150, 0, 212);         // wispy fade-out hem
-  fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,.9)');
-  g.globalCompositeOperation = 'destination-out';
-  g.fillStyle = fade; g.fillRect(30, 142, 180, 76);
-  g.globalCompositeOperation = 'source-over';
-  g.strokeStyle = P.rim; g.lineWidth = 4;
-  g.beginPath(); g.arc(120, 88, 36, -2.6, -.5); g.stroke(); // hugs the head dome
-  if (cute) {
-    cuteSmile(g, 120, 104, 13);
-    cuteEye(g, 108, 84, 6); cuteEye(g, 132, 84, 6);
-    return;
-  }
-  g.fillStyle = P.dark;                                        // hollow face
-  blob(g, 120, 92, 27, 32);
-  g.fillStyle = '#040a05';                                     // wailing mouth
-  blob(g, 120, 112, 9, 13);
-  eyeGlow(g, 108, 84, 6); eyeGlow(g, 132, 84, 6);
-}
-
-// bat — webbed wings, big ears, tiny fangs
-function paintBat(g, P, cute) {
-  g.fillStyle = P.wing;                                        // scalloped wings
-  g.beginPath(); g.moveTo(112, 118); g.quadraticCurveTo(70, 74, 18, 72);
-  g.quadraticCurveTo(34, 96, 28, 118); g.quadraticCurveTo(52, 112, 58, 132);
-  g.quadraticCurveTo(80, 124, 88, 146); g.quadraticCurveTo(102, 134, 112, 142);
-  g.closePath(); g.fill();
-  g.beginPath(); g.moveTo(128, 118); g.quadraticCurveTo(170, 74, 222, 72);
-  g.quadraticCurveTo(206, 96, 212, 118); g.quadraticCurveTo(188, 112, 182, 132);
-  g.quadraticCurveTo(160, 124, 152, 146); g.quadraticCurveTo(138, 134, 128, 142);
-  g.closePath(); g.fill();
-  g.strokeStyle = P.dark; g.lineWidth = 3;                     // wing bones
-  for (const m of [-1, 1]) {
-    g.beginPath(); g.moveTo(120 + m * 8, 118); g.lineTo(120 + m * 72, 84); g.stroke();
-    g.beginPath(); g.moveTo(120 + m * 8, 122); g.lineTo(120 + m * 80, 108); g.stroke();
-  }
-  g.fillStyle = P.body; blob(g, 120, 134, 22, 30);             // body
-  g.fillStyle = P.body2; blob(g, 120, 102, 23, 23);            // head
-  tri(g, 104, 92, 98, 58, 118, 84); tri(g, 136, 92, 142, 58, 122, 84); // ears
-  if (cute) {
-    cuteSmile(g, 120, 112, 9);
-    cuteEye(g, 111, 100, 5.5); cuteEye(g, 129, 100, 5.5);
-    return;
-  }
-  g.fillStyle = P.teeth;                                       // fangs
-  tri(g, 113, 116, 118, 116, 115, 126); tri(g, 122, 116, 127, 116, 124, 126);
-  eyeGlow(g, 111, 100, 5.5); eyeGlow(g, 129, 100, 5.5);
-}
-
-// spiked brute — the rare 3-hit boss, toxic cracks glowing across its chest
-function paintBrute(g, P, cute) {
-  g.lineCap = 'round';
-  g.fillStyle = '#1a3320';                                     // back spikes
-  tri(g, 178, 100, 122, 16, 118, 100);
-  tri(g, 144, 112, 58, 40, 96, 124);
-  tri(g, 156, 112, 242, 46, 204, 124);
-  g.strokeStyle = 'rgba(125,255,94,.45)'; g.lineWidth = 3;     // spike edge light
-  g.beginPath(); g.moveTo(122, 16); g.lineTo(118, 100); g.stroke();
-  g.beginPath(); g.moveTo(58, 40); g.lineTo(96, 124); g.stroke();
-  g.beginPath(); g.moveTo(242, 46); g.lineTo(204, 124); g.stroke();
-  g.strokeStyle = P.limb; g.lineWidth = 30;                    // huge arms
-  g.beginPath(); g.moveTo(92, 150); g.lineTo(58, 210); g.stroke();
-  g.beginPath(); g.moveTo(208, 150); g.lineTo(242, 210); g.stroke();
-  g.fillStyle = P.limb;
-  blob(g, 54, 232, 22, 22); blob(g, 246, 232, 22, 22);         // fists
-  g.fillStyle = P.body;                                        // massive torso
-  g.beginPath(); g.moveTo(84, 128); g.quadraticCurveTo(150, 104, 216, 128);
-  g.lineTo(224, 210); g.quadraticCurveTo(150, 244, 76, 210); g.closePath(); g.fill();
-  g.fillStyle = P.body2;                                       // shoulder plates
-  blob(g, 92, 138, 30, 30); blob(g, 208, 138, 30, 30);
-  for (const w of [10, 4]) {                                   // glowing chest cracks
-    g.strokeStyle = w > 4 ? 'rgba(125,255,94,.22)' : P.accent; g.lineWidth = w;
-    g.beginPath(); g.moveTo(118, 168); g.lineTo(134, 182); g.lineTo(128, 198); g.stroke();
-    g.beginPath(); g.moveTo(176, 160); g.lineTo(166, 178); g.lineTo(180, 190); g.stroke();
-    g.beginPath(); g.moveTo(150, 204); g.lineTo(158, 216); g.stroke();
-  }
-  g.fillStyle = P.body2; blob(g, 150, 112, 30, 30);            // sunken head
-  g.fillStyle = P.limb;                                        // leg stubs
-  g.fillRect(116, 238, 28, 34); g.fillRect(156, 238, 28, 34);
-  if (cute) {
-    cuteSmile(g, 150, 122, 17);
-    cuteEye(g, 138, 102, 6.5); cuteEye(g, 162, 102, 6.5);
-    return;
-  }
-  g.fillStyle = P.limb;                                        // heavy brow
-  g.beginPath(); g.moveTo(122, 96); g.lineTo(178, 96); g.lineTo(174, 108);
-  g.lineTo(126, 108); g.closePath(); g.fill();
-  g.beginPath(); g.roundRect ? g.roundRect(118, 122, 64, 20, 6) : g.rect(118, 122, 64, 20);
-  g.fill();                                                    // underbite jaw
-  g.fillStyle = P.teeth;                                       // teeth point UP
-  tri(g, 126, 122, 134, 122, 130, 110); tri(g, 142, 122, 150, 122, 146, 108);
-  tri(g, 158, 122, 166, 122, 162, 110);
-  eyeGlow(g, 138, 104, 6.5); eyeGlow(g, 162, 104, 6.5);
-}
-
-// Silly mode bodies: per-kind purple/orange party colors over a shared base
-const INK_SILLY = { limb:'#6a35a8', dark:'#3c1c66', rim:'rgba(255,225,160,.55)',
-                    teeth:'#fff', accent:'#ffd23f' };
-const SILLY_TINT = { shambler:['#9a5cd6','#b06fe8'], crawler:['#ff9430','#ffae5c'],
-                     ghoul:['#d9b3ff','#e8ccff'], bat:['#8448c8','#a55fe0'],
-                     brute:['#ff8c1a','#ffa948'] };
-
-// build (and cache) the sprite for a kind in the current mode; sprites are
-// painted at 2x and downscaled when stamped, so they stay crisp on retina
-const spriteCache = { spooky: {}, silly: {} };
-function getSprite(kind) {
-  const mode = silly ? 'silly' : 'spooky';
-  let c = spriteCache[mode][kind.id];
-  if (c) return c;
-  c = document.createElement('canvas');
-  c.width = c.height = kind.px * 2;
-  const g = c.getContext('2d');
-  g.scale(2, 2);
-  let P = INK;
-  if (silly) {
-    const t = SILLY_TINT[kind.id];
-    P = Object.assign({}, INK_SILLY, { body: t[0], body2: t[1], ghost: t[0], wing: t[0] });
-  }
-  kind.paint(g, P, silly);
-  spriteCache[mode][kind.id] = c;
-  return c;
-}
 
 /* ---------- photoreal sprites (spooky mode, Milestone 6) ----------
    PNGs in sprites/ replace the drawn bodies whenever Silly mode is off.
@@ -872,25 +676,8 @@ const eyeGlowSpr = (() => {
   return c;
 })();
 
-// dress an enemy for the current mode: photo sprite when its art is ready
-// (spooky), drawn canvas otherwise; the hit circle follows what's visible
-function dressEnemy(e) {
-  e.spr = getSprite(e.kind);
-  const ph = (!silly && photos[e.kind.id]) || null;
-  e.photo = ph;
-  if (ph) {
-    e.dh = e.size;
-    e.dw = Math.min(e.size * ph.aspect, e.size * 2); // wings may be wide, cap it
-    e.r = Math.min(e.dw, e.dh) / 2;
-  } else {
-    e.dw = e.dh = e.size;
-    e.r = e.size / 2;
-  }
-}
-
-function enemySize() { // at least 120px, a bit bigger on large screens
-  return Math.max(120, Math.min(150, Math.min(W, H) * 0.18));
-}
+// M2 dresses enemies with billboard or GLB looks; the street is empty until then
+function dressEnemy() {}
 
 let lastBrute = 0;
 function pickKind(now) {
@@ -906,58 +693,8 @@ function pickKind(now) {
   return KINDS[0];
 }
 
-// Every kind enters the screen its own way. The risers reuse the old fruit
-// arc math: pick where the rise should peak and how long it should take,
-// then derive launch speed + gravity (vy = -2h/T, g = 2h/T²).
-function spawn() {
-  const now = performance.now();
-  const kind = pickKind(now);
-  const base = enemySize();
-  const size = kind.id === 'brute' ? base * 1.4 : base;
-  const r = size / 2;
-  const e = { kind, size, r, hp: kind.hp, t: 0, phase: rand(0, 6.28),
-              x: 0, y: 0, vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0 };
-  dressEnemy(e); // picks photo art vs drawn fallback, sets the true hit circle
-  if (kind.id === 'shambler' || kind.id === 'brute') {
-    // climbs out of the ground: a slow, low arc from below the screen
-    const T = (kind.id === 'brute' ? rand(2.6, 3.2) : rand(2.2, 2.9)) / speedMul;
-    const h = (kind.id === 'brute' ? rand(.35, .6) : rand(.3, .55)) * (H - size);
-    e.x = rand(.15, .85) * W; e.y = H + r;
-    e.vx = rand(-30, 30); e.vy = -2 * h / T; e.g = 2 * h / (T * T);
-    if (kind.id === 'brute') lastBrute = now;
-  } else if (kind.id === 'crawler') {
-    // drags itself across, hugging the ground
-    e.dir = Math.random() < .5 ? 1 : -1;
-    e.x = e.dir > 0 ? -r : W + r;
-    e.by = H - r * rand(.9, 1.5); e.y = e.by;
-    e.vx = e.dir * rand(70, 115) * speedMul;
-  } else if (kind.id === 'ghoul') {
-    // floats straight up with a sideways wobble
-    e.bx = rand(.12, .88) * W; e.x = e.bx; e.y = H + r;
-    e.vy = -rand(60, 95) * speedMul;
-    e.wA = rand(28, 60); e.wF = rand(1.4, 2.4);
-  } else { // bat — swoops across in a sine wave
-    e.dir = Math.random() < .5 ? 1 : -1;
-    e.x = e.dir > 0 ? -r : W + r;
-    e.by = rand(.16, .45) * H; e.y = e.by;
-    e.vx = e.dir * rand(140, 220) * speedMul;
-    e.wA = rand(.06, .15) * H; e.wF = rand(1.8, 3);
-  }
-  enemies.push(e);
-  // each kind announces itself (groans are throttled — spawns are constant);
-  // in Silly mode everything giggles and boings instead
-  if (kind.id === 'bat') silly ? playBoing() : playScreech();
-  else if (kind.id === 'brute') silly ? playBoing(true) : playRoar(false);
-  else if (kind.id === 'ghoul') silly ? playGiggle() : playWhisper();
-  else if (Math.random() < .7) silly ? playGiggle() : playGroan();
-}
-
-// ---------- slicing: blade trails + collision ----------
-// Every input source gets its own trail: each touching finger, the mouse,
-// and (in M2) each tracked hand. A trail is just the last ~0.3s of points.
-const TRAIL_MS = 280;
-const trails = new Map();
-let hueSeed = 0;
+// M2: enemies spawn deep in the fog and advance on the player
+function spawn() {}
 
 // every blade gets a toxic green tone of its own (still tells two hands apart)
 const BLADE_HUES = [96, 110, 122, 134];
@@ -969,11 +706,7 @@ function addTrailPoint(key, x, y) {
   tr.pts.push({ x, y, t: performance.now() });
   if (tr.pts.length > 40) tr.pts.shift();
   if (!running) return;
-  // ember sparks spit off the moving blade
-  if (prev && particles.length < 400 && Math.random() < .4)
-    particles.push({ type:'spark', x, y, vx: rand(-70, 70), vy: rand(-130, 10),
-                     color: Math.random() < .7 ? '#a6ff5e' : '#ffb066',
-                     life: rand(.25, .5), max: .5 });
+  // (M3: ember sparks spit off the blade into the 3D particle pool here)
   // Hand blades get extra forgiveness: tracking runs at ~15Hz and a waving
   // arm is not a stylus, so the hit radius is bigger than for touch.
   const pad = key.startsWith('hand') ? 22 : 8;
@@ -991,17 +724,21 @@ function segPointDist(ax, ay, bx, by, px, py) {
   const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
   return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
+// Collision runs in SCREEN space: every frame each enemy's 3D position is
+// projected to CSS pixels (e.sx, e.sy) with a radius (e.sr) sized to how big
+// the creature looks right now — so the trail math is identical to 2D.
 function checkSlice(x1, y1, x2, y2, pad) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    if (segPointDist(x1, y1, x2, y2, e.x, e.y) < e.r + pad)
+    if (e.hittable && segPointDist(x1, y1, x2, y2, e.sx, e.sy) < e.sr + pad)
       slashEnemy(i, Math.atan2(y2 - y1, x2 - x1));
   }
 }
 function pointCheck(x, y, pad) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    if (Math.hypot(e.x - x, e.y - y) < e.r + pad) slashEnemy(i, rand(0, Math.PI));
+    if (e.hittable && Math.hypot(e.sx - x, e.sy - y) < e.sr + pad)
+      slashEnemy(i, rand(0, Math.PI));
   }
 }
 
@@ -1012,7 +749,7 @@ let onScoreChange = () => {}; // the optional shared room hooks in here
 
 function showCombo(n) {
   const c = $('combo');
-  c.textContent = '🔥 x' + n + '!';
+  c.textContent = 'x' + n;
   c.classList.add('show');
   clearTimeout(showCombo.t);
   showCombo.t = setTimeout(() => c.classList.remove('show'), 900);
@@ -1022,601 +759,367 @@ function showCombo(n) {
 let shakeAmp = 0;
 function addShake(a) { shakeAmp = Math.min(12, shakeAmp + a); }
 
-function slashEnemy(i, ang) {
-  const e = enemies[i], now = performance.now();
-  // a short shield after every brute hit, so one fast swipe (= many trail
-  // segments) can't chain 3 hits — including the killing blow — at once
-  if (now < (e.iv || 0)) return;
+// M2 rebuilds the kill in 3D (ichor burst, crumple, smoke). The logic
+// contract is frozen: brute 420ms shield BEFORE the kill branch, 1s combo
+// window, onScoreChange(pts) feeding Versus.
+function slashEnemy(i, ang) {}
 
-  if (e.hp > 1) {
-    e.hp--; e.iv = now + 420;
-    e.flash = .3;                                   // white-hot stagger flash
-    e.vx += Math.cos(ang) * 90;                     // knocked back along the cut
-    e.vy = Math.min(e.vy, 0) - 70;
-    addShake(4);
-    ichor(e.x, e.y, e.r * .5);
-    silly ? playBoing() : playGrunt();
-    return;
-  }
-
-  enemies.splice(i, 1);
-  kills++;
-  score += e.kind.pts;
-  const el = $('score');
-  el.textContent = score;
-  el.classList.add('bump');
-  setTimeout(() => el.classList.remove('bump'), 130);
-
-  comboN = (now - comboT < 1000) ? comboN + 1 : 0;
-  comboT = now;
-  if (comboN >= 1) showCombo(comboN + 1);
-  playPop(Math.pow(1.07, Math.min(comboN, 8)));
-
-  // the body splits in two along the cut, halves flying apart
-  for (const dir of [-1, 1]) {
-    const px = Math.cos(ang + Math.PI / 2) * dir, py = Math.sin(ang + Math.PI / 2) * dir;
-    pieces.push({
-      spr: e.spr, photo: silly ? null : e.photo, dw: e.dw, dh: e.dh,
-      x: e.x, y: e.y, size: e.size, cut: ang, dir, rot: e.rot,
-      flip: e.dir > 0,
-      vx: e.vx + px * 150 + rand(-30, 30),
-      vy: Math.min(e.vy, 0) * .3 + py * 150 - 60,
-      spin: dir * rand(1.5, 3.5), life: 1,
-    });
-  }
-  const isBrute = e.kind.id === 'brute';
-  if (!silly) {
-    // dark gobbets that tumble out and dissolve into smoke — reads right
-    // against the photoreal bodies, and it's goo-green smoke, never red
-    const n = isBrute ? 12 : 7;
-    for (let i = 0; i < n; i++) {
-      const a2 = rand(0, Math.PI * 2), sp = rand(90, 300) * (isBrute ? 1.3 : 1);
-      const L = rand(.7, 1.1);
-      particles.push({ type:'chunk', x: e.x, y: e.y,
-                       vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp - 140,
-                       r: rand(5, 12) * (isBrute ? 1.4 : 1),
-                       rot: rand(0, 6.3), spin: rand(-7, 7), life: L, max: L });
-    }
-  }
-  ichor(e.x, e.y, e.r * (isBrute ? 1.7 : 1));
-  particles.push({ type:'poof', x: e.x, y: e.y - 10, e: silly ? '⭐' : '💀',
-                   size: e.size * .38, life: .6, max: .6 });
-  particles.push({ type:'ptext', txt: '+' + e.kind.pts, x: e.x, y: e.y - e.r * .6,
-                   life: .9, max: .9 });
-  addShake(isBrute ? 9 : 2.5);
-  if (isBrute) {
-    bannerShow('🧟 BRUTE DOWN! 🧟', 1500);
-    ichor(e.x, e.y, e.r * 2.4);                     // huge goo burst
-    silly ? playBoing(true) : playRoar(true);       // death bellow / mega-boing
-  }
-  if (kills % 25 === 0 && !versus) celebrate();     // versus has its own big moments
-  onScoreChange(e.kind.pts);
-}
-
-// glowing green ichor — never red. scale ~60 = a normal kill.
-// Silly mode splatters confetti goo instead.
+// glowing green ichor — never red
 const ICHOR = ['#7dff5e', '#4ddb3a', '#b6ff7a', '#2fae22'];
-const ICHOR_SILLY = ['#ff9430', '#c75cff', '#ffd23f', '#ff5fa2', '#5fd4ff'];
-function ichor(x, y, scale) {
-  if (particles.length > 380) particles.splice(0, 60); // hard cap, keeps old iPads smooth
-  const colors = silly ? ICHOR_SILLY : ICHOR;
-  const s = Math.min(scale / 60, 2);
-  particles.push({ type:'ring', x, y, r: 12, color: colors[0], life: .45, max: .45 });
-  const n = Math.round(16 * s + 4);
-  for (let i = 0; i < n; i++) {
-    const a = rand(0, Math.PI * 2), sp = rand(120, 420) * Math.min(s, 1.6);
-    particles.push({ type:'drop', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
-                     r: rand(4, 11) * Math.min(s, 1.5),
-                     color: colors[(Math.random() * colors.length) | 0], life: rand(.5, .9) });
-  }
-  if (silly) for (let i = 0; i < Math.round(6 * s); i++) // goo comes with confetti
-    particles.push({ type:'conf', x, y, vx: rand(-140, 140), vy: rand(-220, -60),
-                     r: rand(4, 7), hue: rand(0, 360), rot: rand(0, 6.3),
-                     spin: rand(-6, 6), life: rand(.8, 1.4) });
-}
+function ichor() {} // M2: 3D particle burst
 
 const PRAISE = ['FEARLESS!', 'UNSTOPPABLE!', 'NIGHT STALKER!', 'MONSTER SLAYER!',
                 'LEGENDARY!', 'UNDEAD UNDONE!'];
-function celebrate() { // every 25 kills: a private lightning storm + wolf howl
-  const b = $('banner');
-  b.textContent = '⚡ ' + PRAISE[(kills / 25 - 1) % PRAISE.length] + ' ' + kills + ' ⚡';
-  b.classList.add('show');
-  setTimeout(() => b.classList.remove('show'), 1900);
-  confettiBurst();
+function celebrate() { // every 25 kills: a private lightning storm
+  bannerShow(PRAISE[(kills / 25 - 1) % PRAISE.length] + '  ' + kills, 1900);
   lightning();
   setTimeout(lightning, 420);
   setTimeout(lightning, 880);
   setTimeout(playHowl, 520);
 }
-function confettiBurst() { // goo-confetti: toxic greens with ember orange
-  if (particles.length > 330) particles.splice(0, 110);
-  for (let i = 0; i < 70; i++)
-    particles.push({ type:'conf', x: rand(0, W), y: rand(-80, -10), vx: rand(-60, 60),
-                     vy: rand(90, 230), r: rand(5, 9),
-                     hue: silly ? rand(0, 360) : (Math.random() < .65 ? rand(90, 140) : rand(18, 45)),
-                     rot: rand(0, 6.3), spin: rand(-6, 6), life: rand(1.6, 2.4) });
-}
 
 // ---------- physics + drawing ----------
 function update(dt, now) {
-  // in a versus match, enemies only spawn during YOUR 30-second turn
-  const maySpawn = !versus || versus.playing;
-  if (maySpawn && now > nextSpawn && enemies.length < MAXF) {
-    spawn();
-    nextSpawn = now + rand(1100, 1800) / speedMul;
-  }
-  for (let i = enemies.length - 1; i >= 0; i--) {
-    const e = enemies[i];
-    e.t += dt;
-    if (e.flash > 0) e.flash -= dt * 3;
-    if (e.pin) continue; // test hook parks an enemy in place
-    const k = e.kind.id;
-    if (k === 'shambler' || k === 'brute') {        // rising out of the ground
-      e.vy += e.g * dt; e.x += e.vx * dt; e.y += e.vy * dt;
-      e.rot = Math.sin(e.t * 2.2 + e.phase) * .07;  // drunken sway
-      if (e.x < e.r || e.x > W - e.r) e.vx *= -1;   // bounce off side walls
-      if (e.y > H + e.size * 2 && e.vy > 0) enemies.splice(i, 1); // sank back — no penalty
-    } else if (k === 'crawler') {                   // dragging across the ground
-      e.x += e.vx * dt;
-      e.y = e.by + Math.sin(e.t * 5 + e.phase) * 5; // lurching drag
-      e.rot = Math.sin(e.t * 5 + e.phase) * .04 * e.dir;
-      if ((e.dir > 0 && e.x > W + e.size) || (e.dir < 0 && e.x < -e.size)) enemies.splice(i, 1);
-    } else if (k === 'ghoul') {                     // floating up, wobbling
-      e.y += e.vy * dt;
-      e.x = e.bx + Math.sin(e.t * e.wF + e.phase) * e.wA;
-      e.rot = Math.sin(e.t * e.wF + e.phase) * .12;
-      if (e.y < -e.size * 2) enemies.splice(i, 1);
-    } else {                                        // bat swooping through
-      e.x += e.vx * dt;
-      e.y = e.by + Math.sin(e.t * e.wF + e.phase) * e.wA;
-      e.rot = Math.cos(e.t * e.wF + e.phase) * .16 * e.dir;
-      if ((e.dir > 0 && e.x > W + e.size) || (e.dir < 0 && e.x < -e.size)) enemies.splice(i, 1);
-    }
-  }
-  for (let i = pieces.length - 1; i >= 0; i--) {
-    const p = pieces[i];
-    p.vy += 900 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-    p.rot += p.spin * dt; p.life -= dt * .9;
-    if (p.life <= 0 || p.y > H + 300) pieces.splice(i, 1);
-  }
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.life -= dt;
-    if (p.type === 'drop') { p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
-    else if (p.type === 'spark') { p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
-    else if (p.type === 'chunk') {
-      if (p.life / p.max > .45) { // solid gobbet tumbling under gravity…
-        p.vy += 700 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.spin * dt;
-      } else {                    // …then it stalls and drifts up as smoke
-        p.vx *= Math.pow(.05, dt); p.vy *= Math.pow(.05, dt);
-        p.x += p.vx * dt; p.y += (p.vy - 30) * dt;
-      }
-    }
-    else if (p.type === 'conf') { p.vy += 140 * dt; p.x += (p.vx + Math.sin(p.life * 5) * 40) * dt; p.y += p.vy * dt; p.rot += p.spin * dt; }
-    else if (p.type === 'ring') p.r += 320 * dt;
-    if (p.life <= 0) particles.splice(i, 1);
-  }
-  // a distant storm rolls through every 30–60 seconds
+  // M2: enemies advance here (and versus gates their spawning)
   if (!nextStorm) nextStorm = now + rand(30000, 60000);
   if (now > nextStorm) {
     lightning();
     nextStorm = now + rand(30000, 60000);
   }
-  // drifting embers live in the scenery, recycled forever
-  if (scene) for (const em of scene.embers) {
-    em.y -= em.sp * dt;
-    em.x += Math.sin(now / 900 + em.ph) * 12 * dt;
-    if (em.y < -6) { em.y = H + 6; em.x = rand(0, W); }
-  }
   if (shakeAmp > 0) shakeAmp = Math.max(0, shakeAmp - 26 * dt);
 }
 
-function drawEmoji(e, size) {
-  ctx.font = size + 'px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(e, 0, 0);
-}
+/* =====================================================================
+   THE NIGHT — Three.js world.
+   Realism strategy: heavy exponential fog + one cold moon light + warm
+   point-light fires + bloom on deliberate emitters + grain/vignette in
+   a single grade pass. Geometry is merged silhouette boxes; the fog
+   does the detail work. No shadow maps anywhere.
+   ===================================================================== */
+let renderer = null, scene3, camera, composer, bloomPass, gradePass;
+let dirLight, ambLight, moonHalo, camBaseQ = null;
+let fires = [], windowGroups = [], hordeBoards = [];
+const FOG_COLOR = 0x041208, FOG_D = 0.055;
+let PARTICLE_K = 1, degradeStep = 0, __fps = 60;
 
-/* ---------- the night: cached scenery layers ----------
-   Everything static is painted ONCE into offscreen canvases (rebuilt when
-   the screen size changes) and stamped each frame, so the per-frame cost
-   is a few drawImage calls plus the little animated bits: flickering
-   windows, drifting fog and clouds, rising embers. */
-let scene = null;
-let remoteIsBig = false; // set by layoutVideos: partner video is fullscreen
-let flash = 0;           // 0..1 lightning brightness, computed from flashAt
-let flashAt = -9e9, hordeUntil = 0, nextStorm = 0;
-
-// one strike: double-blink flash, thunder right behind it, and the distant
-// horde stands revealed in the skyline for a single second
+// lightning: the 2D game's exact double-blink envelope, now driving the
+// lights, the fog density (a strike burns the fog back) and the post chain
+let flash = 0, flashAt = -9e9, hordeUntil = 0, nextStorm = 0;
 function lightning() {
   flashAt = performance.now();
   hordeUntil = flashAt + 1000;
   addShake(3);
-  playThunder(silly); // silly mode keeps its storms gentle
+  playThunder();
 }
 
-function buildScene() {
-  const mk = (w, h) => { const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+// final color pass: vignette + animated grain + lightning wash + scare tint
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: .034 },
+              uFlash: { value: 0 }, uScare: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader: [
+    'uniform sampler2D tDiffuse; uniform float uTime,uGrain,uFlash,uScare;',
+    'varying vec2 vUv;',
+    'float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }',
+    'void main(){',
+    '  vec4 c = texture2D(tDiffuse, vUv);',
+    '  float d = distance(vUv, vec2(.5,.46));',
+    '  c.rgb *= 1.0 - smoothstep(.4,1.0,d)*.66;',
+    '  c.rgb += (hash(vUv*977.0 + mod(uTime,97.0)) - .5) * uGrain;',
+    '  c.rgb = mix(c.rgb, vec3(.83,1.0,.85), uFlash*.34);',
+    '  c.rgb = mix(c.rgb, vec3(.04,.12,.06), uScare*smoothstep(.2,.85,d));',
+    '  gl_FragColor = c;',
+    '}'].join('\n')
+};
 
-  // night palette: toxic green apocalypse vs Silly purple/orange party
-  const C = silly ? {
-    tint:'rgba(40,16,60,.26)', vig0:'rgba(16,5,28,0)', vig1:'rgba(16,5,28,.62)',
-    halo0:'rgba(255,235,190,.5)', halo1:'rgba(255,215,150,.14)', halo2:'rgba(255,215,150,0)',
-    moon:'#fff3d8', crater:'rgba(238,210,170,.8)',
-    far:'#3a1f5e', near:'#1c0f33', winA:'#ffd23f', winB:'#c75cff',
-    fog0:'rgba(200,120,255,.28)', fog1:'rgba(200,120,255,0)',
-    cloud0:'rgba(28,12,48,.85)', cloud1:'rgba(28,12,48,0)',
-    emA:'#ffd23f', emB:'#c75cff'
-  } : { // pushed darker to sit with the photoreal sprites and the poster
-    tint:'rgba(5,16,8,.42)', vig0:'rgba(0,4,2,0)', vig1:'rgba(0,4,2,.84)',
-    halo0:'rgba(205,255,205,.5)', halo1:'rgba(160,255,170,.16)', halo2:'rgba(160,255,170,0)',
-    moon:'#dceed2', crater:'rgba(178,200,168,.8)',
-    far:'#07170d', near:'#040806', winA:'#ff9a3c', winB:'#9dff57',
-    fog0:'rgba(110,230,120,.30)', fog1:'rgba(110,230,120,0)',
-    cloud0:'rgba(4,10,6,.85)', cloud1:'rgba(4,10,6,0)',
-    emA:'#ffb066', emB:'#9dff6e'
-  };
-
-  // tint + vignette in one full-screen layer
-  const vg = mk(W, H), vgc = vg.getContext('2d');
-  vgc.fillStyle = C.tint;
-  vgc.fillRect(0, 0, W, H);
-  const rad = vgc.createRadialGradient(W / 2, H * .45, Math.min(W, H) * .32,
-                                       W / 2, H * .55, Math.max(W, H) * .78);
-  rad.addColorStop(0, C.vig0);
-  rad.addColorStop(1, C.vig1);
-  vgc.fillStyle = rad; vgc.fillRect(0, 0, W, H);
-
-  // pale full moon with a halo
-  const mr = Math.min(W, H) * .11, mpx = mr * 3;
-  const moon = mk(mpx * 2, mpx * 2), mc = moon.getContext('2d');
-  const halo = mc.createRadialGradient(mpx, mpx, mr * .6, mpx, mpx, mpx);
-  halo.addColorStop(0, C.halo0);
-  halo.addColorStop(.35, C.halo1);
-  halo.addColorStop(1, C.halo2);
-  mc.fillStyle = halo; mc.fillRect(0, 0, mpx * 2, mpx * 2);
-  mc.fillStyle = C.moon;
-  mc.beginPath(); mc.arc(mpx, mpx, mr, 0, 7); mc.fill();
-  mc.fillStyle = C.crater;
-  for (let i = 0; i < 7; i++) { // craters
-    const a = rand(0, 6.28), d = rand(0, mr * .68), cr = rand(mr * .06, mr * .2);
-    mc.beginPath(); mc.arc(mpx + Math.cos(a) * d, mpx + Math.sin(a) * d, cr, 0, 7); mc.fill();
-  }
-  if (silly) { // the Silly moon is a friend
-    cuteEye(mc, mpx - mr * .3, mpx - mr * .15, mr * .1);
-    cuteEye(mc, mpx + mr * .3, mpx - mr * .15, mr * .1);
-    cuteSmile(mc, mpx, mpx + mr * .3, mr * .3);
-  }
-
-  // two ruined skylines: far = dim green, near = almost black w/ lit windows
-  const skyH = H * .30;
-  const far = mk(W, skyH), nearC = mk(W, skyH);
-  const windows = [];
-  const drawTown = (cv, col, hmin, hmax, near) => {
-    const g2 = cv.getContext('2d'); g2.fillStyle = col;
-    let x = -10;
-    while (x < W + 10) {
-      const bw = rand(W * .05, W * .11), bh = rand(hmin, hmax) * skyH, top = skyH - bh;
-      if (Math.random() < .5) { // broken, slanted rooftop
-        g2.beginPath();
-        g2.moveTo(x, skyH); g2.lineTo(x, top + rand(8, 30));
-        g2.lineTo(x + bw * .45, top); g2.lineTo(x + bw, top + rand(14, 44));
-        g2.lineTo(x + bw, skyH); g2.closePath(); g2.fill();
-      } else {
-        g2.fillRect(x, top, bw, bh);
-        if (Math.random() < .4) g2.fillRect(x + rand(6, bw - 10), top - rand(10, 26), 3, rand(10, 26));
-      }
-      if (near) for (let k = 0, n = (Math.random() * 3) | 0; k < n; k++)
-        windows.push({ x: x + rand(6, bw - 14), y: skyH - rand(.15, .75) * bh,
-                       w: rand(5, 9), h: rand(7, 12), ph: rand(0, 6.28),
-                       orange: Math.random() < .75 });
-      x += bw + rand(4, W * .02);
+// dark procedural stand-ins if textures/ is missing — the fog covers them
+function makeProceduralTex(kind) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  if (kind === 'brick') {
+    g.fillStyle = '#2a1b16'; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = '#33221b';
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++)
+      g.fillRect(x * 32 + (y % 2 ? 16 : 0) + 1, y * 16 + 1, 30, 14);
+  } else {
+    g.fillStyle = '#15191a'; g.fillRect(0, 0, 256, 256);
+    const d = g.createImageData(256, 256);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = 16 + Math.random() * 18;
+      d.data[i] = v; d.data[i + 1] = v + 3; d.data[i + 2] = v; d.data[i + 3] = 255;
     }
-  };
-  drawTown(far, C.far, .35, .95, false);
-  drawTown(nearC, C.near, .2, .7, true);
+    g.putImageData(d, 0, 0);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
 
-  // a distant horde, revealed only while lightning flashes (M3)
-  const horde = mk(W, skyH), hc = horde.getContext('2d');
-  hc.fillStyle = hc.strokeStyle = '#010302'; hc.lineCap = 'round';
+// committed Poly Haven JPGs (CC0 — see README); procedural fallback on 404
+function loadStreetTex(file, kind, repX, repY, onto) {
+  const apply = t => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repX, repY);
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    onto.map = t;
+    onto.needsUpdate = true;
+  };
+  new THREE.TextureLoader().load('textures/' + file, apply,
+    undefined, () => apply(makeProceduralTex(kind)));
+}
+
+// a gaunt dark silhouette with glowing eyes — the only acceptable stand-in
+// (lightning horde now; the missing-sprite billboard fallback in M2)
+function makeSilhouetteTex() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#020503';
+  g.beginPath(); g.ellipse(64, 52, 22, 26, 0, 0, 7); g.fill();
+  g.beginPath(); g.moveTo(34, 250);
+  g.lineTo(40 + rand(-6, 6), 96); g.lineTo(64, 70); g.lineTo(88 + rand(-6, 6), 96);
+  g.lineTo(94, 250); g.closePath(); g.fill();
+  g.lineWidth = 9; g.strokeStyle = '#020503'; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(42, 110); g.lineTo(14 + rand(-6, 6), 60 + rand(-14, 14)); g.stroke();
+  g.beginPath(); g.moveTo(86, 110); g.lineTo(114 + rand(-6, 6), 70 + rand(-14, 14)); g.stroke();
+  for (const ex of [54, 74]) {
+    const rg = g.createRadialGradient(ex, 50, 0, ex, 50, 9);
+    rg.addColorStop(0, 'rgba(170,255,120,.95)');
+    rg.addColorStop(1, 'rgba(170,255,120,0)');
+    g.fillStyle = rg; g.beginPath(); g.arc(ex, 50, 9, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function initWorld() {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false,
+                                       powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); // perf budget cap
+  renderer.setSize(W, H);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.5;
+
+  scene3 = new THREE.Scene();
+  scene3.background = new THREE.Color(FOG_COLOR);
+  scene3.fog = new THREE.FogExp2(FOG_COLOR, FOG_D);
+
+  camera = new THREE.PerspectiveCamera(70, W / H, .1, 140);
+  camera.position.set(0, 1.6, 0);
+  camera.lookAt(0, 1.2, -12);
+  camBaseQ = camera.quaternion.clone();
+
+  ambLight = new THREE.AmbientLight(0x1c3a26, 1.05);
+  dirLight = new THREE.DirectionalLight(0xbcd4ff, 1.1);
+  dirLight.position.set(-14, 30, -20);
+  scene3.add(ambLight, dirLight);
+
+  // ground: wet asphalt — low roughness + the cold moonlight = the sheen
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a554c, roughness: .35, metalness: .18 });
+  loadStreetTex('asphalt_diff_1k.jpg', 'asphalt', 4, 16, groundMat);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(22, 90), groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, 0, -34);
+  scene3.add(ground);
+
+  // near buildings: merged brick slabs flanking the street (one draw call).
+  // Each slab remembers its street-facing wall so windows sit flush on it.
+  const nearGeos = [], walls = [];
   for (let i = 0; i < 12; i++) {
-    const x = rand(20, W - 20), s = rand(.5, 1), b = skyH;
-    hc.beginPath(); hc.arc(x, b - 34 * s, 9 * s, 0, 7); hc.fill();
-    hc.beginPath(); hc.moveTo(x - 11 * s, b); hc.lineTo(x - 7 * s, b - 26 * s);
-    hc.lineTo(x + 7 * s, b - 26 * s); hc.lineTo(x + 12 * s, b); hc.closePath(); hc.fill();
-    hc.lineWidth = 4 * s;
-    hc.beginPath(); hc.moveTo(x - 7 * s, b - 22 * s);
-    hc.lineTo(x - 18 * s, b - (Math.random() < .5 ? 34 : 12) * s); hc.stroke();
-    hc.beginPath(); hc.moveTo(x + 7 * s, b - 22 * s);
-    hc.lineTo(x + 17 * s, b - 30 * s); hc.stroke();
+    const side = i % 2 ? 1 : -1;
+    const bw = rand(5, 9), bh = rand(7, 19), bd = rand(6, 10);
+    const cx = side * (8.2 + bw / 2); // inner face lands at exactly |x| = 8.2
+    const cz = -4 - i * 5.4 + rand(-1.5, 1.5);
+    const g2 = new THREE.BoxGeometry(bw, bh, bd);
+    g2.translate(cx, bh / 2 - .1, cz);
+    nearGeos.push(g2);
+    walls.push({ side, x: side * 8.2, h: bh, z0: cz - bd / 2, z1: cz + bd / 2 });
   }
+  const brickMat = new THREE.MeshLambertMaterial({ color: 0x8a9388 });
+  loadStreetTex('brick_diff_1k.jpg', 'brick', 2, 2, brickMat);
+  scene3.add(new THREE.Mesh(BufferGeometryUtils.mergeGeometries(nearGeos), brickMat));
 
-  // one soft fog puff, stamped a few times while drifting
-  const fog = mk(420, 180), fc = fog.getContext('2d');
-  const fr = fc.createRadialGradient(210, 120, 10, 210, 100, 200);
-  fr.addColorStop(0, C.fog0);
-  fr.addColorStop(1, C.fog1);
-  fc.fillStyle = fr; fc.fillRect(0, 0, 420, 180);
+  // far skyline: silhouettes darker than the fog (fog:false is the trick —
+  // honest fogging would erase them entirely)
+  const farGeos = [];
+  for (let i = 0; i < 14; i++) {
+    const bw = rand(6, 12), bh = rand(8, 17); // low enough that the moon clears them
+    const g2 = new THREE.BoxGeometry(bw, bh, 5);
+    g2.translate((Math.random() < .5 ? -1 : 1) * rand(8, 16), bh / 2, -44 - i * 1.8);
+    farGeos.push(g2);
+  }
+  scene3.add(new THREE.Mesh(BufferGeometryUtils.mergeGeometries(farGeos),
+    new THREE.MeshBasicMaterial({ color: 0x020a05, fog: false })));
 
-  // one cloud streak for the moon band
-  const cloud = mk(360, 90), cc = cloud.getContext('2d');
-  const cg = cc.createRadialGradient(180, 45, 8, 180, 45, 170);
-  cg.addColorStop(0, C.cloud0); cg.addColorStop(1, C.cloud1);
-  cc.fillStyle = cg;
-  cc.save(); cc.translate(180, 45); cc.scale(1, .3); cc.translate(-180, -45);
-  cc.beginPath(); cc.arc(180, 45, 170, 0, 7); cc.fill(); cc.restore();
+  // street debris: rubble, a flipped car shape, a leaning pole (one draw call)
+  const debGeos = [];
+  for (let i = 0; i < 10; i++) {
+    const g2 = new THREE.BoxGeometry(rand(.5, 1.6), rand(.3, 1), rand(.5, 1.4));
+    g2.rotateY(rand(0, 3)); g2.rotateZ(rand(-.2, .2));
+    g2.translate(rand(-6.5, 6.5), rand(.15, .5), -rand(4, 30));
+    debGeos.push(g2);
+  }
+  const carBody = new THREE.BoxGeometry(2, .8, 4.4);
+  carBody.rotateZ(2.8);
+  carBody.translate(-4.8, .9, -13);
+  const pole = new THREE.CylinderGeometry(.07, .09, 6);
+  pole.rotateZ(.3);
+  pole.translate(5.6, 2.6, -9);
+  debGeos.push(carBody, pole);
+  scene3.add(new THREE.Mesh(BufferGeometryUtils.mergeGeometries(debGeos),
+    new THREE.MeshLambertMaterial({ color: 0x10150f })));
 
-  const embers = [];
-  for (let i = 0; i < 26; i++)
-    embers.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 2.6), sp: rand(12, 38),
-                  ph: rand(0, 6.28), orange: Math.random() < .55 });
-
-  // faint film grain: one pre-rendered 96px tile, stamped as a single
-  // repeating pattern fill per frame — nothing is computed at draw time
-  let grainPat = null;
-  if (!silly) {
-    const gr = mk(96, 96), gc = gr.getContext('2d');
-    const gd = gc.createImageData(96, 96);
-    for (let i = 0; i < gd.data.length; i += 4) {
-      const v = 120 + ((Math.random() * 80) | 0);
-      gd.data[i] = gd.data[i + 1] = gd.data[i + 2] = v;
-      gd.data[i + 3] = (Math.random() * 34) | 0;
+  // emissive windows flush on real walls, 3 flicker groups; >1 color blooms
+  for (let gi = 0; gi < 3; gi++) {
+    const quads = [];
+    for (let i = 0; i < 8; i++) {
+      const wall = walls[(gi * 8 + i) % walls.length];
+      const q = new THREE.PlaneGeometry(.7, 1);
+      q.rotateY(wall.side > 0 ? -Math.PI / 2 : Math.PI / 2);
+      q.translate(wall.x - wall.side * .04, rand(2, Math.max(3, wall.h - 2)),
+                  rand(wall.z0 + .8, wall.z1 - .8));
+      quads.push(q);
     }
-    gc.putImageData(gd, 0, 0);
-    grainPat = ctx.createPattern(gr, 'repeat');
+    const m = new THREE.MeshBasicMaterial({ color: 0xff8a2e });
+    windowGroups.push(m);
+    scene3.add(new THREE.Mesh(BufferGeometryUtils.mergeGeometries(quads), m));
   }
 
-  scene = { w: W, h: H, vg, moon, far, near: nearC, horde, skyH, windows,
-            fog, cloud, embers, mx: W * .68, my: H * .18,
-            winA: C.winA, winB: C.winB, emA: C.emA, emB: C.emB,
-            grainPat, fogK: silly ? 1 : .5 };
+  // the moon: ignores fog, bright enough to bloom, plus an additive halo.
+  // Sits high mid-left where no building can mask it.
+  // kept BELOW the bloom threshold: the halo sprite is its glow, so the
+  // bloom pass stays reserved for true emitters (windows, eyes, the blade)
+  const moon = new THREE.Mesh(new THREE.CircleGeometry(4.6, 32),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(.8, .86, .78), fog: false }));
+  moon.position.set(-7, 29, -75);
+  moon.lookAt(camera.position);
+  scene3.add(moon);
+  const haloC = document.createElement('canvas');
+  haloC.width = haloC.height = 128;
+  const hg = haloC.getContext('2d');
+  const hgrad = hg.createRadialGradient(64, 64, 6, 64, 64, 64);
+  hgrad.addColorStop(0, 'rgba(205,255,205,.6)');
+  hgrad.addColorStop(.4, 'rgba(160,255,170,.18)');
+  hgrad.addColorStop(1, 'rgba(160,255,170,0)');
+  hg.fillStyle = hgrad; hg.fillRect(0, 0, 128, 128);
+  moonHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(haloC), blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, fog: false, opacity: .5 }));
+  moonHalo.material.opacity = .32;
+  moonHalo.scale.set(20, 20, 1);
+  moonHalo.position.copy(moon.position);
+  scene3.add(moonHalo);
+
+  // two distant fires: flickering warm point lights + additive glow sprites
+  const glowC = document.createElement('canvas');
+  glowC.width = glowC.height = 64;
+  const gg = glowC.getContext('2d');
+  const ggrad = gg.createRadialGradient(32, 32, 2, 32, 32, 32);
+  ggrad.addColorStop(0, 'rgba(255,170,80,.9)');
+  ggrad.addColorStop(1, 'rgba(255,120,40,0)');
+  gg.fillStyle = ggrad; gg.fillRect(0, 0, 64, 64);
+  const glowTex = new THREE.CanvasTexture(glowC);
+  for (const [fx, fz] of [[-5.5, -16], [4.8, -34]]) {
+    const light = new THREE.PointLight(0xff7426, 2.2, 22, 2);
+    light.position.set(fx, .7, fz);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex,
+      blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: .6 }));
+    glow.scale.set(2.4, 2.4, 1);
+    glow.position.set(fx, .8, fz);
+    scene3.add(light, glow);
+    fires.push({ light, glow, seed: rand(0, 9) });
+  }
+
+  // the distant horde, revealed only while lightning hangs in the air
+  const silTex = makeSilhouetteTex();
+  for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2.2),
+      new THREE.MeshBasicMaterial({ map: silTex, transparent: true, alphaTest: .15,
+                                    fog: false, opacity: 0 }));
+    m.position.set(rand(-7, 7), 1.1, -rand(34, 46));
+    m.visible = false;
+    hordeBoards.push(m);
+    scene3.add(m);
+  }
+
+  // post chain: render -> bloom (half res) -> grade -> output
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene3, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(W / 2, H / 2), .45, .35, .85);
+  composer.addPass(bloomPass);
+  gradePass = new ShaderPass(GradeShader);
+  composer.addPass(gradePass);
+  composer.addPass(new OutputPass());
 }
 
-function drawScene(now) {
-  const s = scene;
-  // lightning envelope: bright pop, dip, second pop, then a ~.45s fade
-  const fdt = now - flashAt;
-  flash = fdt < 70 ? .95 : fdt < 140 ? .35 : fdt < 240 ? .8
-        : Math.max(0, .8 - (fdt - 240) / 450 * .8);
-  ctx.drawImage(s.vg, 0, 0, W, H); // tint + vignette, also over the camera feed
-  if (remoteIsBig) return;         // partner's video is fullscreen — keep them visible
-  const mw = s.moon.width / 2;
-  ctx.drawImage(s.moon, s.mx - mw, s.my - mw);
-  for (let i = 0; i < 3; i++) {    // clouds drifting across the moon band
-    const cx = ((now * .008 * (1 + i * .35) + i * W * .45) % (W + 720)) - 360;
-    ctx.globalAlpha = .8;
-    ctx.drawImage(s.cloud, W - cx - 360, s.my - 50 + i * 48);
-  }
-  ctx.globalAlpha = 1;
-  ctx.drawImage(s.far, 0, H - s.skyH - H * .04);
-  ctx.drawImage(s.near, 0, H - s.skyH);
-  if (now < hordeUntil && !silly) { // the horde appears for 1s per strike
-    ctx.globalAlpha = Math.min(1, (hordeUntil - now) / 300) * .95;
-    ctx.drawImage(s.horde, 0, H - s.skyH);
-    ctx.globalAlpha = 1;
-  }
-  for (const w of s.windows) {     // flickering windows
-    const f = Math.sin(now / 640 + w.ph) * .5 + .5;
-    if (f < .22) continue;         // blacked out right now
-    ctx.globalAlpha = (silly ? .35 + .6 * f : .22 + .45 * f); // dimmer windows at night
-    ctx.fillStyle = w.orange ? s.winA : s.winB;
-    ctx.fillRect(w.x, H - s.skyH + w.y, w.w, w.h);
-  }
-  ctx.globalAlpha = 1;
-  for (let i = 0; i < 4; i++) {    // toxic ground fog (crawls slower in the dark)
-    let fx = ((now * (.010 + .005 * i) * s.fogK) + i * 400) % (W + 840) - 420;
-    if (i % 2) fx = W - fx - 420;
-    ctx.globalAlpha = .5;
-    ctx.drawImage(s.fog, fx, H - 150 - i * 26);
-  }
-  ctx.globalAlpha = 1;
-  for (const em of s.embers) {     // embers floating up
-    ctx.globalAlpha = .35 + .35 * Math.sin(now / 300 + em.ph);
-    ctx.fillStyle = em.orange ? s.emA : s.emB;
-    ctx.beginPath(); ctx.arc(em.x, em.y, em.r, 0, 7); ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-  if (flash > 0) {                 // the lightning whitewash itself
-    ctx.fillStyle = 'rgba(214,255,218,' + (flash * .5).toFixed(3) + ')';
-    ctx.fillRect(0, 0, W, H);
-  }
+// fps watcher -> one-way degrade ladder; tracking is NEVER on this list
+const DEGRADE = [
+  () => { bloomPass.enabled = false; },                      // biggest single win
+  () => { gradePass.uniforms.uGrain.value = 0; },
+  () => { PARTICLE_K = .5; },
+  () => { renderer.setPixelRatio(1); composer.setSize(W, H); },
+  () => { MAXF = 5; },
+];
+function setDegrade(n) {
+  while (degradeStep < Math.min(n, DEGRADE.length)) DEGRADE[degradeStep++]();
 }
-
-function draw(now) {
-  ctx.clearRect(0, 0, W, H); // transparent canvas — camera video shows through
-  ctx.save();
-  if (shakeAmp > 0)
-    ctx.translate((Math.random() * 2 - 1) * shakeAmp, (Math.random() * 2 - 1) * shakeAmp);
-  if (running) {
-    if (!scene || scene.w !== W || scene.h !== H) buildScene();
-    drawScene(now);
-  }
-
-  for (const e of enemies) {
-    ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
-    if (e.dir > 0) ctx.scale(-1, 1); // crawlers and bats face where they're going
-    const ph = !silly && e.photo;
-    if (ph) {
-      // a slow 2-3px breathing bob sells "alive" without animation frames
-      ctx.translate(0, Math.sin(now / 480 + e.phase * 3) * e.dh * .018);
-      ctx.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sh,
-                    -e.dw / 2, -e.dh / 2, e.dw, e.dh);
-      if (e.flash > 0) {             // brute stagger: re-stamp the body additively
-        ctx.globalAlpha = Math.min(1, e.flash * 3);
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sh,
-                      -e.dw / 2, -e.dh / 2, e.dw, e.dh);
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
-      }
-      // pulsing glow stamped over the eyes the analyzer found in the art
-      ctx.globalAlpha = .5 + .3 * Math.sin(now / 170 + e.phase);
-      for (const [nx, ny] of ph.eyes) {
-        const gx = -e.dw / 2 + nx * e.dw, gy = -e.dh / 2 + ny * e.dh, gr = e.dh * .08;
-        ctx.drawImage(eyeGlowSpr, gx - gr, gy - gr, gr * 2, gr * 2);
-      }
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
-      if (e.flash > 0) {             // stagger flash: re-stamp the body additively
-        ctx.globalAlpha = Math.min(1, e.flash * 3);
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
-      }
-      if (!silly) {                  // pulsing glow over the baked eyes
-        const k = e.size / e.kind.px;
-        ctx.fillStyle = 'rgba(140,255,90,' +
-          (.4 + .3 * Math.sin(now / 170 + e.phase)).toFixed(3) + ')';
-        for (const [ex, ey] of e.kind.eyes) {
-          ctx.beginPath();
-          ctx.arc((ex - e.kind.px / 2) * k, (ey - e.kind.px / 2) * k, 9 * k, 0, 7);
-          ctx.fill();
-        }
-      }
-    }
-    ctx.restore();
-  }
-
-  // halves: clip to one side of the cut line, then stamp the same body
-  for (const p of pieces) {
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, p.life * 2);
-    ctx.translate(p.x, p.y);
-    ctx.rotate(p.cut); // local x-axis now lies along the cut
-    const big = Math.max(p.dw || p.size, p.dh || p.size);
-    ctx.beginPath();
-    ctx.rect(-big, p.dir < 0 ? -big : 0, big * 2, big);
-    ctx.clip();
-    ctx.rotate(p.rot - p.cut);
-    if (p.flip) ctx.scale(-1, 1);
-    if (p.photo)
-      ctx.drawImage(p.photo.img, p.photo.sx, p.photo.sy, p.photo.sw, p.photo.sh,
-                    -p.dw / 2, -p.dh / 2, p.dw, p.dh);
-    else
-      ctx.drawImage(p.spr, -p.size / 2, -p.size / 2, p.size, p.size);
-    ctx.restore();
-  }
-  ctx.globalAlpha = 1;
-
-  for (const p of particles) {
-    if (p.type === 'drop') {        // glowing ichor: soft halo + bright core
-      const a = Math.max(0, Math.min(1, p.life / .6));
-      ctx.globalAlpha = a * .35;
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 2.1, 0, 7); ctx.fill();
-      ctx.globalAlpha = a;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
-    } else if (p.type === 'spark') {
-      ctx.globalAlpha = Math.max(0, p.life / p.max);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
-    } else if (p.type === 'chunk') {
-      const t = Math.max(0, p.life / p.max);
-      if (t > .45) {                // dark gobbet
-        ctx.globalAlpha = Math.min(1, t + .2);
-        ctx.fillStyle = '#0d1a10';
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        ctx.fillRect(-p.r * .8, -p.r * .55, p.r * 1.6, p.r * 1.1);
-        ctx.restore();
-      } else {                      // dissolving into green-gray smoke
-        ctx.globalAlpha = t * .7;
-        ctx.fillStyle = '#46643f';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * (1.4 + (.45 - t) * 4.5), 0, 7);
-        ctx.fill();
-      }
-    } else if (p.type === 'conf') {
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
-      ctx.fillStyle = 'hsl(' + p.hue + ',95%,60%)';
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-      ctx.fillRect(-p.r, -p.r * .6, p.r * 2, p.r * 1.2); ctx.restore();
-    } else if (p.type === 'poof') { // quick skull poof rising off a kill
-      const t = 1 - p.life / p.max;
-      ctx.globalAlpha = Math.max(0, 1 - t);
-      ctx.save(); ctx.translate(p.x, p.y - t * 46);
-      ctx.scale(1 + t * .5, 1 + t * .5);
-      drawEmoji(p.e, p.size);
-      ctx.restore();
-    } else if (p.type === 'ptext') { // the flying +1 / +5
-      ctx.globalAlpha = Math.max(0, p.life / p.max);
-      ctx.font = '34px Creepster, cursive';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const ty = p.y - (1 - p.life / p.max) * 54;
-      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(3,12,5,.85)';
-      ctx.strokeText(p.txt, p.x, ty);
-      ctx.fillStyle = '#aaff7a';
-      ctx.fillText(p.txt, p.x, ty);
-    } else {                        // expanding slash ring
-      ctx.globalAlpha = Math.max(0, p.life / p.max) * .8;
-      ctx.strokeStyle = p.color; ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.stroke();
-    }
-  }
-  ctx.globalAlpha = 1;
-
-  // blade trails: three strokes (wide toxic glow, bright core, pale center)
-  for (const [k, tr] of trails) {
-    tr.pts = tr.pts.filter(p => now - p.t < TRAIL_MS);
-    if (tr.pts.length < 2) { if (!tr.pts.length) trails.delete(k); continue; }
-    const hue = tr.hue + Math.sin(now * .002) * 8;
-    ctx.lineCap = ctx.lineJoin = 'round';
-    for (const [wd, col] of [[26, 'hsla(' + hue + ',100%,55%,.3)'],
-                             [11, 'hsl(' + hue + ',100%,62%)'],
-                             [4, 'rgba(230,255,215,.95)']]) {
-      ctx.lineWidth = wd; ctx.strokeStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(tr.pts[0].x, tr.pts[0].y);
-      for (let i = 1; i < tr.pts.length; i++) ctx.lineTo(tr.pts[i].x, tr.pts[i].y);
-      ctx.stroke();
-    }
-  }
-
-  // glowing fingertip markers — kids instantly see "that dot is my hand",
-  // even when the hand is holding still and there's no trail to look at
-  for (const [key, s] of handSmooth) {
-    const tr = trails.get(key);
-    const hue = tr ? tr.hue : 110;
-    const pulse = 1 + Math.sin(now / 140) * .12;
-    ctx.globalAlpha = .35;
-    ctx.fillStyle = 'hsl(' + hue + ',95%,65%)';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 34 * pulse, 0, 7); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = 'hsl(' + hue + ',95%,70%)';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 22 * pulse, 0, 7); ctx.stroke();
-    ctx.fillStyle = 'rgba(235,255,225,.95)';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 7); ctx.fill();
-  }
-
-  // faint film grain over the whole frame: the pre-rendered tile fills the
-  // screen as one repeating pattern; cycling four fixed offsets makes it
-  // shimmer like film stock without computing anything new
-  if (running && scene && scene.grainPat && !remoteIsBig) {
-    const j = ((now / 130) | 0) % 4;
-    ctx.save();
-    ctx.translate([0, 31, 63, 17][j], [0, 47, 13, 59][j]);
-    ctx.globalAlpha = .07;
-    ctx.fillStyle = scene.grainPat;
-    ctx.fillRect(-96, -96, W + 192, H + 192);
-    ctx.restore();
-  }
-  ctx.restore();
-}
-
-// auto-quality: if fps sags on a weak device, render at lower resolution
-let frames = 0, fpsT = performance.now(), qSteps = 0;
+let frames = 0, fpsT = performance.now();
 function perfGuard(now) {
   frames++;
-  if (now - fpsT < 2000) return;
-  const fps = frames * 1000 / (now - fpsT);
+  const span = now - fpsT;
+  if (span < 2000) return;
+  if (span > 4000) { frames = 0; fpsT = now; return; } // tab slept — that's not "slow"
+  __fps = frames * 1000 / span;
   frames = 0; fpsT = now;
-  if (fps < 24 && qSteps < 2) { qSteps++; quality *= .78; resize(); }
-  else if (fps < 20) MAXF = 4;
+  if (__fps < 26 && degradeStep < DEGRADE.length) DEGRADE[degradeStep++]();
+}
+document.addEventListener('visibilitychange', () => { frames = 0; fpsT = performance.now(); });
+
+let remoteIsBig = false; // versus watching: the partner's video owns the screen
+
+function render(now) {
+  const fdt = now - flashAt; // double-blink: pop, dip, pop, fade
+  flash = fdt < 70 ? .95 : fdt < 140 ? .35 : fdt < 240 ? .8
+        : Math.max(0, .8 - (fdt - 240) / 450 * .8);
+  dirLight.intensity = 1.1 + 3.2 * flash;
+  ambLight.intensity = 1.05 + 1.5 * flash;
+  scene3.fog.density = FOG_D * (1 - .4 * flash);
+  if (bloomPass.enabled) bloomPass.strength = .45 + .5 * flash;
+  gradePass.uniforms.uFlash.value = flash;
+  gradePass.uniforms.uTime.value = now * .001;
+
+  const hv = now < hordeUntil;
+  for (const b of hordeBoards) {
+    b.visible = hv;
+    if (hv) b.material.opacity = Math.min(1, (hordeUntil - now) / 300) * .95;
+  }
+  windowGroups.forEach((m, i) => { // flicker + occasional blackout
+    const f = Math.sin(now / 640 + i * 2.1) * .5 + .5;
+    const v = f < .2 ? .04 : .2 + 1.3 * f;
+    m.color.setRGB(v, v * .54, v * .18);
+  });
+  for (const f of fires) {
+    f.light.intensity = 2.2 + Math.sin(now / 97 + f.seed) * .5
+                            + Math.sin(now / 31 + f.seed * 3) * .4;
+    f.glow.material.opacity = .35 + f.light.intensity * .1;
+  }
+
+  if (shakeAmp > 0) { // camera shake: kills, brute stomps, thunder
+    camera.position.set((Math.random() * 2 - 1) * shakeAmp * .012,
+                        1.6 + (Math.random() * 2 - 1) * shakeAmp * .012, 0);
+    camera.quaternion.copy(camBaseQ);
+    camera.rotateZ((Math.random() * 2 - 1) * shakeAmp * .0025);
+  } else {
+    camera.position.set(0, 1.6, 0);
+    camera.quaternion.copy(camBaseQ);
+  }
+
+  if (remoteIsBig) return; // fullscreen call video owns the GPU while watching
+  composer.render();
 }
 
 let last = performance.now();
@@ -1625,11 +1128,10 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, .05);
   last = now;
   if (running) { update(dt, now); detectHands(now); versusTick(now); }
-  draw(now);
+  render(now);
   updatePill(now);
   perfGuard(now);
 }
-requestAnimationFrame(loop);
 document.addEventListener('visibilitychange', () => { last = performance.now(); });
 
 // ---------- touch & mouse input (always on — works alongside hands) ----------
@@ -1656,101 +1158,15 @@ function showChip(msg, ms) {
 }
 
 /* =====================================================================
-   🎉 SILLY MODE (Milestone 4) — a bright purple/orange Halloween party
-   for the littlest hunters. Same five enemies redrawn goofy, ichor
-   becomes confetti goo, groans become giggles and boings, thunder goes
-   soft, the lightning horde stays hidden, and the title screen swaps to
-   a friendly cartoon canvas. The toggle also syncs through the room
-   (one retained _mode message, newest change wins) so both Versus
-   players always see the same version.
-   ===================================================================== */
-let lastModeStamp = 0;
-
-function setSilly(on, silent) {
-  on = !!on;
-  if (silly === on) return;
-  silly = on;
-  document.body.classList.toggle('silly', on);
-  try { localStorage.setItem('zh_silly', on ? '1' : '0'); } catch (e) {}
-  for (const e of enemies) dressEnemy(e); // live enemies swap costume + hit circle
-  scene = null;                                       // scenery repaints next frame
-  syncSillyUI();
-  drawTitleArt();
-  if (!silent) publishMode();                         // tell the room (no-op solo)
-}
-
-function syncSillyUI() {
-  $('sillyChk').checked = silly;
-  $('sillyStart').textContent = silly ? '🎉 Silly mode: ON' : '👻 Silly mode: OFF';
-  document.querySelector('#start .subtitle').textContent =
-    silly ? '— Party with the silly zombies! —' : '— Survive the night —';
-}
-
-// the friendly cartoon title art (visible only with body.silly on #start)
-function drawTitleArt() {
-  if (!silly) return;
-  const cv = $('titleArt');
-  cv.width = innerWidth; cv.height = innerHeight;
-  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
-  const sky = g.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#4a2a78'); sky.addColorStop(.6, '#2c1452'); sky.addColorStop(1, '#1a0b36');
-  g.fillStyle = sky; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 60; i++) {                      // confetti sprinkles
-    g.fillStyle = ICHOR_SILLY[i % ICHOR_SILLY.length];
-    g.save(); g.translate(Math.random() * w, Math.random() * h);
-    g.rotate(Math.random() * 6.3); g.globalAlpha = .6;
-    g.fillRect(-4, -2, 8, 4); g.restore();
-  }
-  g.globalAlpha = 1;
-  const mx = w * .74, my = h * .14, mr = Math.min(w, h) * .1; // smiling moon
-  g.fillStyle = '#fff3d8'; g.beginPath(); g.arc(mx, my, mr, 0, 7); g.fill();
-  cuteEye(g, mx - mr * .3, my - mr * .15, mr * .1);
-  cuteEye(g, mx + mr * .3, my - mr * .15, mr * .1);
-  cuteSmile(g, mx, my + mr * .3, mr * .3);
-  ['shambler', 'ghoul', 'bat', 'brute', 'crawler'].forEach((id, i) => {
-    const kind = KINDS.find(k => k.id === id);        // goofy guests at the bottom
-    const s = Math.min(w, h) * .2;
-    g.drawImage(getSprite(kind), w * (.12 + .19 * i) - s / 2,
-                h * .88 - (i % 2 ? s * .15 : 0) - s / 2, s, s);
-  });
-}
-// repaint on the NEXT frame so a mid-resize layout can't leave a blank canvas
-addEventListener('resize', () => { if (silly) requestAnimationFrame(drawTitleArt); });
-
-$('sillyStart').addEventListener('click', () => { initAudio(); setSilly(!silly); });
-$('sillyChk').addEventListener('change', e => { initAudio(); setSilly(e.target.checked); });
-
-// room sync: a tiny retained JSON on the room's _mode topic. Whoever
-// toggled most recently wins, on every device, even ones joining later.
-function publishMode() {
-  lastModeStamp = Date.now();
-  if (!room) return;
-  try {
-    room.client.publish(room.topic + '_mode',
-      JSON.stringify({ v: 1, by: myId, t: lastModeStamp, sm: silly ? 1 : 0 }), { retain: true });
-  } catch (e) {}
-}
-function onModeMsg(msg) {
-  if (!msg || !msg.length) return;
-  let d; try { d = JSON.parse(msg.toString()); } catch (e) { return; }
-  if (!d || d.v !== 1 || d.by === myId) return;
-  if ((d.t || 0) <= lastModeStamp) return;            // I changed it more recently
-  lastModeStamp = d.t;
-  setSilly(!!d.sm, true);
-  showChip(d.sm ? '🎉 Silly mode is ON for everyone!' : '🌙 Back to spooky — good luck!', 3500);
-}
-
-// restore last visit's choice (silent: booting never broadcasts)
-try { setSilly(localStorage.getItem('zh_silly') === '1', true); } catch (e) {}
-
-/* =====================================================================
-   📷 CAMERA + ✋ HAND TRACKING (Milestone 2)
+   CAMERA + HAND TRACKING (engine-identical port from the 2D game)
 
    The game never waits for any of this: it is already playable by touch.
-   Ladder of fallbacks, friendliest message at each rung:
-     camera denied/missing  -> play on, pretty gradient background
-     MediaPipe fails to load -> play on, camera as background, touch slices
-     tracking too slow       -> switch itself off, touch slices
+   Ladder of fallbacks, a clear message at each rung:
+     camera denied/missing   -> play on, touch slashes
+     MediaPipe fails to load -> play on, self-view stays, touch slashes
+     tracking too slow       -> switches itself off, touch slashes
+   The camera is no longer a background — it tracks from the corner
+   self-view (tap to tuck it away; it keeps tracking either way).
    ===================================================================== */
 const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 const WASM_CDN   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
@@ -1760,7 +1176,7 @@ let camOn = false, handsOK = false, landmarker = null, handsStatus = 'off';
 
 async function startCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showChip('Camera needs a secure (https) page — touch to slice! 👆', 6000);
+    showChip('CAMERA NEEDS A SECURE (HTTPS) PAGE — TOUCH TO SLASH', 6000);
     return false;
   }
   try {
@@ -1783,11 +1199,17 @@ async function startCamera() {
     return true;
   } catch (err) {
     showChip(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
-      ? "That's OK — camera is off! Swipe with your finger to slash 🧟"
-      : 'No camera found — touch to slash! 👆', 6000);
+      ? 'CAMERA OFF — SWIPE TO SLASH'
+      : 'NO CAMERA FOUND — TOUCH TO SLASH', 6000);
     return false;
   }
 }
+
+// tap the self-view to tuck it away (tracking keeps running either way);
+// during a video call the tap belongs to the PiP swap logic instead
+cam.addEventListener('click', () => {
+  if (!call) cam.classList.toggle('self-hidden');
+});
 
 const withTimeout = (p, ms) =>
   Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
@@ -1804,7 +1226,7 @@ function makeLandmarker(delegate) {
 
 async function startHands() {
   handsStatus = 'loading';
-  showChip('✨ Loading hand magic… you can slice by touch meanwhile!', 30000);
+  showChip('LOADING HAND TRACKING — TOUCH WORKS MEANWHILE', 30000);
   try {
     if (!visionMod) visionMod = await withTimeout(import(VISION_CDN), 20000);
     if (!visionFiles) visionFiles = await withTimeout(visionMod.FilesetResolver.forVisionTasks(WASM_CDN), 20000);
@@ -1815,16 +1237,16 @@ async function startHands() {
     if (!landmarker) throw new Error('no delegate worked');
     handsOK = true; handsStatus = 'on';
     detFails = 0;
-    lastHandSeen = performance.now(); // start the "show me your hand" clock now
-    showChip('✋ Wave your hand to slash!', 4000);
+    lastHandSeen = performance.now(); // start the "show your hand" clock now
+    showChip('TRACKING ACTIVE — WAVE TO SLASH', 4000);
   } catch (e) {
     if (!loadRetried) { // flaky wifi on first visit: one more attempt in 5s
       loadRetried = true;
-      showChip('Hand magic is taking a moment — retrying… touch works meanwhile! 👆', 6000);
+      showChip('TRACKING SLOW TO LOAD — RETRYING. TOUCH WORKS MEANWHILE', 6000);
       setTimeout(startHands, 5000);
     } else {
       handsStatus = 'failed';
-      showChip('Hand tracking unavailable — touch to slash! 👆', 5000);
+      showChip('TRACKING UNAVAILABLE — TOUCH MODE', 5000);
     }
   }
 }
@@ -1837,7 +1259,7 @@ async function rebuildOnCPU(reason) {
   if (rebuilding) return;
   rebuilding = true;
   handsOK = false; handsStatus = 'loading';
-  showChip(reason + ' — switching to compatible mode…', 5000);
+  showChip(reason + ' — SWITCHING TO COMPATIBLE MODE', 5000);
   try {
     try { if (landmarker && landmarker.close) landmarker.close(); } catch (e) {}
     landmarker = await makeLandmarker('CPU');
@@ -1845,9 +1267,9 @@ async function rebuildOnCPU(reason) {
     detFails = 0; detTimes = []; detEvery = 100; // CPU is slower; pace gently
     handsOK = true; handsStatus = 'on';
     lastHandSeen = performance.now();
-    showChip('✋ Hand tracking is back — wave away!', 3500);
+    showChip('TRACKING RESTORED', 3500);
   } catch (e) {
-    disableHands('Hand tracking unavailable — touch to slash! 👆');
+    disableHands('TRACKING UNAVAILABLE — TOUCH MODE');
   }
   rebuilding = false;
 }
@@ -1890,8 +1312,8 @@ function detectHands(now) {
         // one bad frame must not kill tracking: skip, retry, rebuild, only then give up
         detFails++;
         if (detFails < 3) return;
-        if (currentDelegate === 'GPU') rebuildOnCPU('Hand tracking hiccup');
-        else disableHands('Hand tracking hiccup — touch to slash! 👆');
+        if (currentDelegate === 'GPU') rebuildOnCPU('TRACKING HICCUP');
+        else disableHands('TRACKING HICCUP — TOUCH MODE');
         return;
       }
       detTimes.push(performance.now() - t0);
@@ -1899,8 +1321,8 @@ function detectHands(now) {
         const avg = detTimes.reduce((a, b) => a + b, 0) / detTimes.length;
         detTimes = [];
         if (avg > 140) {
-          if (currentDelegate === 'GPU') rebuildOnCPU('Hand tracking is slow here');
-          else disableHands('This device prefers touch — swipe away! 👆');
+          if (currentDelegate === 'GPU') rebuildOnCPU('TRACKING SLOW HERE');
+          else disableHands('THIS DEVICE PREFERS TOUCH');
           return;
         }
         if (avg > 70) detEvery = 120;
@@ -1942,10 +1364,10 @@ function updatePill(now) {
     return; // hidden off-camera and while watching the other player's turn
   }
   let cls, txt;
-  if (handsStatus === 'loading') { cls = 'p-gray'; txt = '✨ Hand magic loading…'; }
-  else if (handsStatus !== 'on') { cls = 'p-gray'; txt = '👆 Touch mode'; }
-  else if (now - lastHandSeen < 1000) { cls = 'p-green'; txt = '✋ I see your hand!'; }
-  else { cls = 'p-yellow'; txt = '👋 Show me your hand'; }
+  if (handsStatus === 'loading') { cls = 'p-gray'; txt = 'TRACKING LOADING'; }
+  else if (handsStatus !== 'on') { cls = 'p-gray'; txt = 'TOUCH MODE'; }
+  else if (now - lastHandSeen < 1000) { cls = 'p-green'; txt = 'TRACKING ACTIVE'; }
+  else { cls = 'p-yellow'; txt = 'SHOW YOUR HAND'; }
   if (cls + txt !== pillState) {
     pillState = cls + txt;
     pill.className = cls;
@@ -1955,7 +1377,7 @@ function updatePill(now) {
   if (handsStatus === 'on' && now - lastHandSeen > 10000 && now - hintAt > 20000) {
     hintAt = now;
     const h = $('hint');
-    h.textContent = '👋 Step back so the camera can see your hand!';
+    h.textContent = 'STEP BACK SO THE CAMERA SEES YOUR HAND';
     h.classList.add('show');
     setTimeout(() => h.classList.remove('show'), 4500);
   }
@@ -1980,9 +1402,8 @@ function startGame() {
   $('start').classList.add('hidden');
   $('gear').style.display = 'block';
   running = true;
-  spawn();
-  nextSpawn = performance.now() + 700;
-  showChip('Slash the zombies! 🧟', 2500);
+  nextSpawn = performance.now() + 1500; // the first thing crawls out shortly
+  showChip('SLASH WHAT COMES OUT OF THE FOG', 2500);
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 }
 $('btnTouch').addEventListener('click', () => { initAudio(); startGame(); });
@@ -1993,13 +1414,13 @@ $('btnCam').addEventListener('click', async () => {
 });
 
 /* =====================================================================
-   👨‍👧 OPTIONAL: PLAY TOGETHER — live scoreboard (Milestone 4)
+   OPTIONAL: HUNT TOGETHER — live scoreboard (engine-identical port)
 
    Both devices type the same room code and see each other's name and
    score. It rides on free public MQTT relays over secure WebSockets:
    no account, no server, no API keys. Only what you see below is ever
    sent: room code, a nickname, and the score. Use nicknames, and pick
-   a unique silly room code (strangers on the same code would see it).
+   a unique room code (strangers on the same code would see it).
 
    The single-player game NEVER depends on this. The mqtt library is
    only fetched when someone taps Join, and every failure just shows a
@@ -2130,7 +1551,7 @@ async function joinRoom() {
   const name = ($('pname').value.trim() || 'Player').slice(0, 12);
   const code = ($('pcode').value.trim() || $('genCode').textContent)
     .toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
-  if (!code) { setRoomStatus('Tap ↻ for a code, or type one 🦇'); return; }
+  if (!code) { setRoomStatus('TAP THE CODE BUTTON OR TYPE ONE'); return; }
   try { localStorage.setItem('zh_name', name); localStorage.setItem('zh_code', code); } catch (e) {}
   myJoinStamp = Date.now(); // my seat number for video pairing
   warnedFull = false;
@@ -2148,14 +1569,14 @@ async function joinRoom() {
     for (const url of BROKERS) {
       try {
         await connectBroker(url, code, name);
-        setRoomStatus('In room ' + code + ' — scores are live! ✔');
-        $('joinBtn').textContent = '🚪 Leave room';
+        setRoomStatus('ROOM ' + code + ' — SCORES LIVE');
+        $('joinBtn').textContent = 'LEAVE ROOM';
         $('joinBtn').disabled = false;
         return;
       } catch (e) { /* try the next relay */ }
     }
   }
-  setRoomStatus('Room service unreachable right now — the solo hunt is just as fun! 🧟');
+  setRoomStatus('RELAY UNREACHABLE — HUNTING SOLO');
   $('joinBtn').disabled = false;
 }
 
@@ -2166,22 +1587,22 @@ let healing = false;
 async function reJoin() {
   if (!room || healing) return;
   healing = true;
-  setRoomStatus('Reconnecting…');
+  setRoomStatus('RECONNECTING');
   const name = room.name, code = room.code;
   try { clearInterval(room.hb); clearInterval(room.prune); room.client.end(true); } catch (e) {}
   room = null;
   for (const url of BROKERS) {
     try {
       await connectBroker(url, code, name);
-      setRoomStatus('In room ' + code + ' — scores are live! ✔');
+      setRoomStatus('ROOM ' + code + ' — SCORES LIVE');
       renderBoard();
       healing = false;
       return;
     } catch (e) { /* next relay */ }
   }
   healing = false;
-  setRoomStatus('Lost the room connection — hunting solo 🧟');
-  $('joinBtn').textContent = '🔗 Join room';
+  setRoomStatus('ROOM LOST — HUNTING SOLO');
+  $('joinBtn').textContent = 'JOIN ROOM';
   if (versus) exitVersus(false);
   renderBoard();
 }
@@ -2201,7 +1622,7 @@ function leaveRoom() {
   room = null;
   renderBoard();
   setRoomStatus('');
-  $('joinBtn').textContent = '🔗 Join room';
+  $('joinBtn').textContent = 'JOIN ROOM';
 }
 
 if (ROOM_ENABLED) {
@@ -2215,7 +1636,7 @@ if (ROOM_ENABLED) {
 }
 
 /* =====================================================================
-   ⚔️ VERSUS — turn-based two-player riding the same room (Milestone 2)
+   VERSUS — turn-based two-player riding the same room (engine port)
 
    One parent taps "Versus" on one device; the other device joins in with
    ZERO clicks. Players alternate 30s turns (the watcher sees the active
@@ -2291,7 +1712,7 @@ function startMyCountdown() {
   if (!versus.ts) versus.ts = [null, null];
   vPublish();
   renderVersus();
-  bannerShow('YOUR TURN, ' + versus.p[versus.myIdx].n + '! 🫵', 1100);
+  bannerShow('YOUR TURN, ' + versus.p[versus.myIdx].n, 1100);
   const step = Math.max(400, Math.floor(COUNT_MS / 3));
   [3, 2, 1].forEach((d, i) => setTimeout(() => {
     if (!versus || !versus.counting) return; // match changed under us
@@ -2307,7 +1728,7 @@ function startMyTurn() {
   versus.ts[versus.myIdx] = 0;
   versus.turnEndAt = performance.now() + TURN_MS;
   vPublish();
-  bannerShow('HUNT! 🧟', 900);
+  bannerShow('HUNT', 900);
   tone(660, 1320, .25, 'triangle', .4);
   renderVersus();
 }
@@ -2348,11 +1769,11 @@ function endMyTurn() {
 function showOver() {
   const f = versus.fin;
   const mine = f === versus.myIdx;
-  bannerShow(f === -1 ? '🏆 You BOTH win! 🏆'
-    : mine ? '🏆 ' + versus.p[f].n + ' wins! 🏆'
-           : '🌟 Great game! ' + versus.p[f].n + ' wins 🌟', OVER_MS - 500);
+  bannerShow(f === -1 ? 'YOU BOTH WIN'
+    : mine ? versus.p[f].n + ' WINS'
+           : 'GREAT GAME — ' + versus.p[f].n + ' WINS', OVER_MS - 500);
   playCheer(); setTimeout(playCheer, 700);
-  for (let k = 0; k < 3; k++) setTimeout(confettiBurst, k * 800);
+  lightning(); setTimeout(lightning, 700); // both screens end under the storm
   renderVersus();
   setTimeout(() => { if (versus && versus.st === 'over') exitVersus(versus.myIdx === 0); }, OVER_MS);
 }
@@ -2370,7 +1791,7 @@ function exitVersus(clearRetained) {
 }
 
 function cancelVersus() {
-  bannerShow("We'll hunt again soon! 🌙", 3000);
+  bannerShow('NEXT HUNT SOON', 3000);
   exitVersus(true);
 }
 
@@ -2414,27 +1835,27 @@ function renderVersus() {
   $('tbar').style.display = 'none';
   $('score').style.display = 'none';
   if (versus.counting) { vov.classList.add('hidden'); return; } // banner digits own the screen
-  const stars = i => '⭐'.repeat(versus.w[i]) || '—';
+  const tally = i => '●'.repeat(versus.w[i]) || '–'; // text glyphs, never emoji
   let t1 = '', t2 = '';
   if (versus.waitSince) {
-    t1 = '💤 Waiting for ' + versus.p[versus.a].n + '…'; t2 = '';
+    t1 = 'WAITING FOR ' + versus.p[versus.a].n; t2 = '';
   } else if (versus.st === 'count') {
-    t1 = 'Get ready — ' + versus.p[versus.a].n + "'s turn!"; t2 = '✨';
+    t1 = 'GET READY — ' + versus.p[versus.a].n + "'S TURN"; t2 = '';
   } else if (versus.st === 'play') {
-    t1 = '👀 ' + versus.p[versus.a].n + "'s turn!";
+    t1 = versus.p[versus.a].n + "'S TURN";
     t2 = String((versus.ts && versus.ts[versus.a]) || 0);
   } else if (versus.st === 'between') {
-    t1 = versus.lw === -1 ? 'Round ' + versus.lr + ' is a tie!'
-                          : versus.p[versus.lw].n + ' wins round ' + versus.lr + '!';
-    t2 = '⭐';
+    t1 = versus.lw === -1 ? 'ROUND ' + versus.lr + ' IS A TIE'
+                          : versus.p[versus.lw].n + ' WINS ROUND ' + versus.lr;
+    t2 = '●';
   } else if (versus.st === 'over') {
-    t1 = versus.fin === -1 ? 'You BOTH win!' : versus.p[versus.fin].n + ' wins!';
-    t2 = '🏆';
+    t1 = versus.fin === -1 ? 'YOU BOTH WIN' : versus.p[versus.fin].n + ' WINS';
+    t2 = '';
   }
   vov.querySelector('.v1').textContent = t1;
   vov.querySelector('.v2').textContent = t2;
-  vov.querySelector('.v3').textContent = 'Round ' + Math.min(versus.r, 3) + ' of 3 — ' +
-    versus.p[0].n + ' ' + stars(0) + '  •  ' + versus.p[1].n + ' ' + stars(1);
+  vov.querySelector('.v3').textContent = 'ROUND ' + Math.min(versus.r, 3) + ' OF 3 — ' +
+    versus.p[0].n + ' ' + tally(0) + '  ·  ' + versus.p[1].n + ' ' + tally(1);
   vov.classList.remove('hidden');
 }
 // every versus state change can flip who's big on screen
@@ -2457,7 +1878,7 @@ $('vsBtn').addEventListener('click', () => {
 });
 
 /* =====================================================================
-   🎥 LIVE VIDEO — WebRTC, peer-to-peer, between the two room members.
+   LIVE VIDEO — WebRTC, peer-to-peer, between the two room members.
 
    The MQTT relay carries ONLY tiny signaling JSON (offers, answers, ICE
    candidates, ~1-4KB total) on the room's _rtc subtopic. The video and
@@ -2531,7 +1952,7 @@ async function handleSignal(d) {
       if (!pc.remoteDescription && c) { call.pending.push(c); return; }
       try { await pc.addIceCandidate(c); } catch (e) { /* fine if offer ignored */ }
     } else if (d.type === 'bye') {
-      endCall(call.partnerName + ' turned video off');
+      endCall(call.partnerName + ' TURNED VIDEO OFF');
     }
   } catch (e) {}
 }
@@ -2577,10 +1998,10 @@ function setVidState(st) {
   if (!call) return;
   if (call.connState === st) return;
   call.connState = st;
-  if (st === 'connecting') showChip('Connecting video… 🎥', 4000);
-  else if (st === 'connected') showChip('Connected to ' + call.partnerName + '! 🎥', 3500);
+  if (st === 'connecting') showChip('CONNECTING VIDEO', 4000);
+  else if (st === 'connected') showChip('VIDEO LINKED: ' + call.partnerName, 3500);
   else if (st === 'failed')
-    showChip('Video could not connect — but the game still works! 🧟', 6000);
+    showChip('VIDEO UNAVAILABLE — THE HUNT IS UNAFFECTED', 6000);
   layoutVideos(); updateSendBadge();
 }
 
@@ -2676,7 +2097,7 @@ function checkCall() {
   if (videoBlocked) {
     if (!warnedFull) {
       warnedFull = true;
-      showChip('Video is full — two players are already on camera. Scores still sync! 🧟', 7000);
+      showChip('VIDEO FULL — TWO HUNTERS ALREADY ON CAMERA. SCORES STILL SYNC', 7000);
     }
     if (call) endCall(null, true);
     return;
@@ -2687,7 +2108,7 @@ function checkCall() {
   if (!other || !fresh) {
     if (call && !call.partnerLostAt) call.partnerLostAt = Date.now();
     if (call && Date.now() - call.partnerLostAt > 30000)
-      endCall('Video off — ' + call.partnerName + ' left the room');
+      endCall('VIDEO OFF — ' + call.partnerName + ' LEFT THE ROOM');
     return;
   }
   if (call && call.partnerId === other.id) {
@@ -2726,7 +2147,7 @@ function layoutVideos() {
   cam.classList.toggle('vid-pip', on && remoteBig && camOn); // selfie shrinks to the corner
   const pipHasVideo = remoteBig ? camOn : true;
   $('pipTag').style.display = on && pipHasVideo ? 'block' : 'none';
-  $('pipName').textContent = !on ? '' : (remoteBig ? 'You' : (call.partnerName || ''));
+  $('pipName').textContent = !on ? '' : (remoteBig ? 'YOU' : (call.partnerName || ''));
 }
 
 // tap the PiP to swap big/small (free play); drag it to any corner
@@ -2756,7 +2177,7 @@ function setMicMuted(m) {
   micMuted = m;
   const s = cam.srcObject;
   if (s) s.getAudioTracks().forEach(t => { t.enabled = !m; });
-  $('muteBtn').textContent = m ? '🔇' : '🎤';
+  $('muteBtn').textContent = m ? 'MUTED' : 'MIC';
   $('muteBtn').classList.toggle('muted', m);
   updateSendBadge();
 }
@@ -2766,7 +2187,7 @@ function updateSendBadge() {
   const sending = !!(call && call.pc &&
     call.pc.getSenders().some(sn => sn.track && sn.track.readyState === 'live'));
   $('sendBadge').style.display = sending ? 'block' : 'none';
-  $('sendTxt').textContent = micMuted ? "you're on camera · mic off" : "you're on camera";
+  $('sendTxt').textContent = micMuted ? 'ON CAMERA · MIC OFF' : 'ON CAMERA';
 }
 
 // ---------- debug hooks for automated tests (harmless to leave in) ----------
@@ -2776,8 +2197,6 @@ window.__game = {
   get enemies() { return enemies; },
   get fruits() { return enemies; }, // the original harness name — same list
   get running() { return running; },
-  get silly() { return silly; },
-  setSilly,
   // photoreal sprite status: which kinds run on image sprites right now
   get photoSprites() { return Object.keys(photos); },
   get photosPending() { return photosPending; },
@@ -2787,11 +2206,7 @@ window.__game = {
       m[k] = { aspect: +p.aspect.toFixed(3), eyes: p.eyes.map(e => e.map(v => +v.toFixed(3))) };
     return m;
   },
-  get particleCounts() {
-    const c = {};
-    for (const p of particles) c[p.type] = (c[p.type] || 0) + 1;
-    return c;
-  },
+  get particleCounts() { return {}; }, // M2: 3D pool counts return here
   get camOn() { return camOn; },
   get handsStatus() { return handsStatus; },
   get audio() { return { state: AC ? AC.state : null,
@@ -2835,19 +2250,14 @@ window.__game = {
   setStormIn(ms) { nextStorm = performance.now() + ms; },
   get flashLevel() { return flash; },
   get nextStormIn() { return nextStorm ? nextStorm - performance.now() : null; },
-  spawnAt(x, y) { spawn(); const e = enemies[enemies.length - 1]; e.x = x; e.y = y; e.pin = true; },
-  // park a SPECIFIC kind at x,y (tests aim at each enemy type, esp. the brute)
-  spawnType(id, x, y) {
-    const kind = KINDS.find(k => k.id === id);
-    if (!kind) return null;
-    const size = kind.id === 'brute' ? enemySize() * 1.4 : enemySize();
-    const e = { kind, size, r: size / 2, hp: kind.hp, t: 0, phase: 0, x, y,
-                vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0, pin: true };
-    dressEnemy(e);
-    enemies.push(e);
-    return e;
-  },
-  sliceAll() { while (enemies.length) { enemies[0].hp = 1; slashEnemy(0, 0); } },
+  // M2 reinstates these against the 3D world (screen coords -> pinned world pos)
+  spawnAt() { return null; },
+  spawnType() { return null; },
+  sliceAll() {},
+  get fps() { return Math.round(__fps); },
+  get degradeStep() { return degradeStep; },
+  setDegrade,
+  get drawCalls() { return renderer ? renderer.info.render.calls : 0; },
   // TEST ONLY: pretend camera + tracker are live so fed frames can drive the
   // real pipeline without hardware. No landmarker exists — detection idles
   // whenever the fed queue is empty (cam.readyState stays 0), so this can
@@ -2865,6 +2275,14 @@ window.__game = {
     } : { landmarks: [], handednesses: [] }));
   },
 };
+
+// ---------- boot the night ----------
+// invoked last so every function and binding above already exists; the
+// head watchdog flips the classic-mode escape hatch if we never get here
+initWorld();
+requestAnimationFrame(loop);
+window.__threeBooted = true;
+clearTimeout(window.__bootWatch);
 </script>
 </body>
 </html>
