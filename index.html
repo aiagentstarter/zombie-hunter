@@ -37,7 +37,7 @@
   /* the player stands IN the apocalypse: darken + desaturate the selfie feed,
      the canvas adds the green tint and vignette on top */
   #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover;
-         transform:scaleX(-1); display:none; filter:brightness(.6) saturate(.45); }
+         transform:scaleX(-1); display:none; filter:brightness(.5) saturate(.4); }
   #game { position:fixed; inset:0; touch-action:none; cursor:crosshair; }
 
   /* ---------- live video call layers ---------- */
@@ -780,6 +780,112 @@ function getSprite(kind) {
   return c;
 }
 
+/* ---------- photoreal sprites (spooky mode, Milestone 6) ----------
+   PNGs in sprites/ replace the drawn bodies whenever Silly mode is off.
+   All five load + decode behind the title screen, then get analyzed ONCE
+   on a scratch canvas: the alpha bounding box sizes the hit circle to the
+   VISIBLE creature (not the file rectangle), and clusters of bright green
+   pixels locate the eyes for the pulsing glow overlay. A sprite that
+   fails to load simply leaves that enemy on its drawn fallback — missing
+   art can never break the game. Render time is plain drawImage from the
+   pre-decoded image: no ctx.filter, nothing computed per frame. */
+const PHOTO_FILES = { shambler: 'sprites/zombie.png', crawler: 'sprites/crawler.png',
+                      ghoul: 'sprites/ghoul.png', bat: 'sprites/bat.png',
+                      brute: 'sprites/brute.png' };
+const photos = {}; // kindId -> { img, sx, sy, sw, sh, aspect, eyes:[[nx,ny],..] }
+let photosPending = Object.keys(PHOTO_FILES).length;
+
+function analyzePhoto(img) {
+  const MAXA = 384; // a downsized scan is plenty accurate and 10x faster
+  const k = Math.min(1, MAXA / Math.max(img.naturalWidth, img.naturalHeight));
+  const aw = Math.max(1, Math.round(img.naturalWidth * k));
+  const ah = Math.max(1, Math.round(img.naturalHeight * k));
+  const c = document.createElement('canvas');
+  c.width = aw; c.height = ah;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, aw, ah);
+  let d;
+  try { d = g.getImageData(0, 0, aw, ah).data; } catch (e) { return null; }
+  let x0 = aw, y0 = ah, x1 = -1, y1 = -1;
+  const eyePts = [];
+  for (let y = 0; y < ah; y++) for (let x = 0; x < aw; x++) {
+    const i = (y * aw + x) * 4;
+    if (d[i + 3] > 30) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      const r = d[i], gr = d[i + 1], b = d[i + 2];
+      if (gr > 140 && gr > r * 1.35 && gr > b * 1.35) eyePts.push([x, y, gr]);
+    }
+  }
+  if (x1 < 0) return null;
+  // split the glowing pixels left/right and average — at most two eyes.
+  // Bias to the HOTTEST pixels (the iris cores) and require candidates to
+  // sit roughly level, so pale rim-light along an edge can't drag a glow
+  // off the face.
+  let eyes = [];
+  if (eyePts.length > 3) {
+    const hot = eyePts.filter(p => p[2] >= 220);
+    let pts = hot.length >= 6 ? hot : eyePts;
+    const ys = pts.map(p => p[1]).sort((a, b) => a - b);
+    const medY = ys[Math.floor(ys.length / 2)], band = (y1 - y0 + 1) * .12;
+    const level = pts.filter(p => Math.abs(p[1] - medY) <= band);
+    if (level.length >= 4) pts = level;
+    pts.sort((p, q) => p[0] - q[0]);
+    const mid = pts[Math.floor(pts.length / 2)][0];
+    const avg = a => a.length ? [a.reduce((s, p) => s + p[0], 0) / a.length,
+                                 a.reduce((s, p) => s + p[1], 0) / a.length] : null;
+    eyes = [avg(pts.filter(p => p[0] <= mid)), avg(pts.filter(p => p[0] > mid))]
+      .filter(Boolean)
+      .map(([ex, ey]) => [(ex - x0) / (x1 - x0 + 1), (ey - y0) / (y1 - y0 + 1)]);
+    if (eyes.length === 2 &&
+        Math.hypot(eyes[0][0] - eyes[1][0], eyes[0][1] - eyes[1][1]) < .06)
+      eyes = [eyes[0]]; // both clusters on one spot = a single eye/mouth glow
+  }
+  const s = 1 / k;
+  return { img, sx: x0 * s, sy: y0 * s, sw: (x1 - x0 + 1) * s, sh: (y1 - y0 + 1) * s,
+           aspect: (x1 - x0 + 1) / (y1 - y0 + 1), eyes };
+}
+
+for (const [kid, src] of Object.entries(PHOTO_FILES)) {
+  const img = new Image();
+  img.onload = () => { // decode() finishes decompression off the game's hot path
+    const fin = () => { const a = analyzePhoto(img); if (a) photos[kid] = a; photosPending--; };
+    img.decode ? img.decode().then(fin, fin) : fin();
+  };
+  img.onerror = () => { photosPending--; }; // stays on the drawn fallback
+  img.src = src;
+}
+
+// one soft green glow stamp, drawn once and scaled over each detected eye
+const eyeGlowSpr = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  rg.addColorStop(0, 'rgba(214,255,176,.95)');
+  rg.addColorStop(.35, 'rgba(130,255,90,.5)');
+  rg.addColorStop(1, 'rgba(130,255,90,0)');
+  g.fillStyle = rg;
+  g.fillRect(0, 0, 64, 64);
+  return c;
+})();
+
+// dress an enemy for the current mode: photo sprite when its art is ready
+// (spooky), drawn canvas otherwise; the hit circle follows what's visible
+function dressEnemy(e) {
+  e.spr = getSprite(e.kind);
+  const ph = (!silly && photos[e.kind.id]) || null;
+  e.photo = ph;
+  if (ph) {
+    e.dh = e.size;
+    e.dw = Math.min(e.size * ph.aspect, e.size * 2); // wings may be wide, cap it
+    e.r = Math.min(e.dw, e.dh) / 2;
+  } else {
+    e.dw = e.dh = e.size;
+    e.r = e.size / 2;
+  }
+}
+
 function enemySize() { // at least 120px, a bit bigger on large screens
   return Math.max(120, Math.min(150, Math.min(W, H) * 0.18));
 }
@@ -808,8 +914,8 @@ function spawn() {
   const size = kind.id === 'brute' ? base * 1.4 : base;
   const r = size / 2;
   const e = { kind, size, r, hp: kind.hp, t: 0, phase: rand(0, 6.28),
-              x: 0, y: 0, vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0,
-              spr: getSprite(kind) };
+              x: 0, y: 0, vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0 };
+  dressEnemy(e); // picks photo art vs drawn fallback, sets the true hit circle
   if (kind.id === 'shambler' || kind.id === 'brute') {
     // climbs out of the ground: a slow, low arc from below the screen
     const T = (kind.id === 'brute' ? rand(2.6, 3.2) : rand(2.2, 2.9)) / speedMul;
@@ -948,7 +1054,8 @@ function slashEnemy(i, ang) {
   for (const dir of [-1, 1]) {
     const px = Math.cos(ang + Math.PI / 2) * dir, py = Math.sin(ang + Math.PI / 2) * dir;
     pieces.push({
-      spr: e.spr, x: e.x, y: e.y, size: e.size, cut: ang, dir, rot: e.rot,
+      spr: e.spr, photo: silly ? null : e.photo, dw: e.dw, dh: e.dh,
+      x: e.x, y: e.y, size: e.size, cut: ang, dir, rot: e.rot,
       flip: e.dir > 0,
       vx: e.vx + px * 150 + rand(-30, 30),
       vy: Math.min(e.vy, 0) * .3 + py * 150 - 60,
@@ -956,6 +1063,19 @@ function slashEnemy(i, ang) {
     });
   }
   const isBrute = e.kind.id === 'brute';
+  if (!silly) {
+    // dark gobbets that tumble out and dissolve into smoke — reads right
+    // against the photoreal bodies, and it's goo-green smoke, never red
+    const n = isBrute ? 12 : 7;
+    for (let i = 0; i < n; i++) {
+      const a2 = rand(0, Math.PI * 2), sp = rand(90, 300) * (isBrute ? 1.3 : 1);
+      const L = rand(.7, 1.1);
+      particles.push({ type:'chunk', x: e.x, y: e.y,
+                       vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp - 140,
+                       r: rand(5, 12) * (isBrute ? 1.4 : 1),
+                       rot: rand(0, 6.3), spin: rand(-7, 7), life: L, max: L });
+    }
+  }
   ichor(e.x, e.y, e.r * (isBrute ? 1.7 : 1));
   particles.push({ type:'poof', x: e.x, y: e.y - 10, e: silly ? '⭐' : '💀',
                    size: e.size * .38, life: .6, max: .6 });
@@ -1062,6 +1182,14 @@ function update(dt, now) {
     p.life -= dt;
     if (p.type === 'drop') { p.vy += 1100 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
     else if (p.type === 'spark') { p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    else if (p.type === 'chunk') {
+      if (p.life / p.max > .45) { // solid gobbet tumbling under gravity…
+        p.vy += 700 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.spin * dt;
+      } else {                    // …then it stalls and drifts up as smoke
+        p.vx *= Math.pow(.05, dt); p.vy *= Math.pow(.05, dt);
+        p.x += p.vx * dt; p.y += (p.vy - 30) * dt;
+      }
+    }
     else if (p.type === 'conf') { p.vy += 140 * dt; p.x += (p.vx + Math.sin(p.life * 5) * 40) * dt; p.y += p.vy * dt; p.rot += p.spin * dt; }
     else if (p.type === 'ring') p.r += 320 * dt;
     if (p.life <= 0) particles.splice(i, 1);
@@ -1120,11 +1248,11 @@ function buildScene() {
     fog0:'rgba(200,120,255,.28)', fog1:'rgba(200,120,255,0)',
     cloud0:'rgba(28,12,48,.85)', cloud1:'rgba(28,12,48,0)',
     emA:'#ffd23f', emB:'#c75cff'
-  } : {
-    tint:'rgba(7,22,11,.30)', vig0:'rgba(1,6,3,0)', vig1:'rgba(1,6,3,.72)',
+  } : { // pushed darker to sit with the photoreal sprites and the poster
+    tint:'rgba(5,16,8,.42)', vig0:'rgba(0,4,2,0)', vig1:'rgba(0,4,2,.84)',
     halo0:'rgba(205,255,205,.5)', halo1:'rgba(160,255,170,.16)', halo2:'rgba(160,255,170,0)',
     moon:'#dceed2', crater:'rgba(178,200,168,.8)',
-    far:'#0b2113', near:'#040806', winA:'#ff9a3c', winB:'#9dff57',
+    far:'#07170d', near:'#040806', winA:'#ff9a3c', winB:'#9dff57',
     fog0:'rgba(110,230,120,.30)', fog1:'rgba(110,230,120,0)',
     cloud0:'rgba(4,10,6,.85)', cloud1:'rgba(4,10,6,0)',
     emA:'#ffb066', emB:'#9dff6e'
@@ -1224,9 +1352,25 @@ function buildScene() {
     embers.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 2.6), sp: rand(12, 38),
                   ph: rand(0, 6.28), orange: Math.random() < .55 });
 
+  // faint film grain: one pre-rendered 96px tile, stamped as a single
+  // repeating pattern fill per frame — nothing is computed at draw time
+  let grainPat = null;
+  if (!silly) {
+    const gr = mk(96, 96), gc = gr.getContext('2d');
+    const gd = gc.createImageData(96, 96);
+    for (let i = 0; i < gd.data.length; i += 4) {
+      const v = 120 + ((Math.random() * 80) | 0);
+      gd.data[i] = gd.data[i + 1] = gd.data[i + 2] = v;
+      gd.data[i + 3] = (Math.random() * 34) | 0;
+    }
+    gc.putImageData(gd, 0, 0);
+    grainPat = ctx.createPattern(gr, 'repeat');
+  }
+
   scene = { w: W, h: H, vg, moon, far, near: nearC, horde, skyH, windows,
             fog, cloud, embers, mx: W * .68, my: H * .18,
-            winA: C.winA, winB: C.winB, emA: C.emA, emB: C.emB };
+            winA: C.winA, winB: C.winB, emA: C.emA, emB: C.emB,
+            grainPat, fogK: silly ? 1 : .5 };
 }
 
 function drawScene(now) {
@@ -1255,13 +1399,13 @@ function drawScene(now) {
   for (const w of s.windows) {     // flickering windows
     const f = Math.sin(now / 640 + w.ph) * .5 + .5;
     if (f < .22) continue;         // blacked out right now
-    ctx.globalAlpha = .35 + .6 * f;
+    ctx.globalAlpha = (silly ? .35 + .6 * f : .22 + .45 * f); // dimmer windows at night
     ctx.fillStyle = w.orange ? s.winA : s.winB;
     ctx.fillRect(w.x, H - s.skyH + w.y, w.w, w.h);
   }
   ctx.globalAlpha = 1;
-  for (let i = 0; i < 4; i++) {    // toxic ground fog
-    let fx = ((now * (.010 + .005 * i)) + i * 400) % (W + 840) - 420;
+  for (let i = 0; i < 4; i++) {    // toxic ground fog (crawls slower in the dark)
+    let fx = ((now * (.010 + .005 * i) * s.fogK) + i * 400) % (W + 840) - 420;
     if (i % 2) fx = W - fx - 420;
     ctx.globalAlpha = .5;
     ctx.drawImage(s.fog, fx, H - 150 - i * 26);
@@ -1292,39 +1436,67 @@ function draw(now) {
   for (const e of enemies) {
     ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
     if (e.dir > 0) ctx.scale(-1, 1); // crawlers and bats face where they're going
-    ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
-    if (e.flash > 0) {               // stagger flash: re-stamp the body additively
-      ctx.globalAlpha = Math.min(1, e.flash * 3);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
-      ctx.globalCompositeOperation = 'source-over';
+    const ph = !silly && e.photo;
+    if (ph) {
+      // a slow 2-3px breathing bob sells "alive" without animation frames
+      ctx.translate(0, Math.sin(now / 480 + e.phase * 3) * e.dh * .018);
+      ctx.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sh,
+                    -e.dw / 2, -e.dh / 2, e.dw, e.dh);
+      if (e.flash > 0) {             // brute stagger: re-stamp the body additively
+        ctx.globalAlpha = Math.min(1, e.flash * 3);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sh,
+                      -e.dw / 2, -e.dh / 2, e.dw, e.dh);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
+      // pulsing glow stamped over the eyes the analyzer found in the art
+      ctx.globalAlpha = .5 + .3 * Math.sin(now / 170 + e.phase);
+      for (const [nx, ny] of ph.eyes) {
+        const gx = -e.dw / 2 + nx * e.dw, gy = -e.dh / 2 + ny * e.dh, gr = e.dh * .08;
+        ctx.drawImage(eyeGlowSpr, gx - gr, gy - gr, gr * 2, gr * 2);
+      }
       ctx.globalAlpha = 1;
-    }
-    if (!silly) {                    // pulsing glow over the baked eyes
-      const k = e.size / e.kind.px;
-      ctx.fillStyle = 'rgba(140,255,90,' +
-        (.4 + .3 * Math.sin(now / 170 + e.phase)).toFixed(3) + ')';
-      for (const [ex, ey] of e.kind.eyes) {
-        ctx.beginPath();
-        ctx.arc((ex - e.kind.px / 2) * k, (ey - e.kind.px / 2) * k, 9 * k, 0, 7);
-        ctx.fill();
+    } else {
+      ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
+      if (e.flash > 0) {             // stagger flash: re-stamp the body additively
+        ctx.globalAlpha = Math.min(1, e.flash * 3);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(e.spr, -e.size / 2, -e.size / 2, e.size, e.size);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
+      if (!silly) {                  // pulsing glow over the baked eyes
+        const k = e.size / e.kind.px;
+        ctx.fillStyle = 'rgba(140,255,90,' +
+          (.4 + .3 * Math.sin(now / 170 + e.phase)).toFixed(3) + ')';
+        for (const [ex, ey] of e.kind.eyes) {
+          ctx.beginPath();
+          ctx.arc((ex - e.kind.px / 2) * k, (ey - e.kind.px / 2) * k, 9 * k, 0, 7);
+          ctx.fill();
+        }
       }
     }
     ctx.restore();
   }
 
-  // halves: clip to one side of the cut line, then stamp the same sprite
+  // halves: clip to one side of the cut line, then stamp the same body
   for (const p of pieces) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, p.life * 2);
     ctx.translate(p.x, p.y);
     ctx.rotate(p.cut); // local x-axis now lies along the cut
+    const big = Math.max(p.dw || p.size, p.dh || p.size);
     ctx.beginPath();
-    ctx.rect(-p.size, p.dir < 0 ? -p.size : 0, p.size * 2, p.size);
+    ctx.rect(-big, p.dir < 0 ? -big : 0, big * 2, big);
     ctx.clip();
     ctx.rotate(p.rot - p.cut);
     if (p.flip) ctx.scale(-1, 1);
-    ctx.drawImage(p.spr, -p.size / 2, -p.size / 2, p.size, p.size);
+    if (p.photo)
+      ctx.drawImage(p.photo.img, p.photo.sx, p.photo.sy, p.photo.sw, p.photo.sh,
+                    -p.dw / 2, -p.dh / 2, p.dw, p.dh);
+    else
+      ctx.drawImage(p.spr, -p.size / 2, -p.size / 2, p.size, p.size);
     ctx.restore();
   }
   ctx.globalAlpha = 1;
@@ -1341,6 +1513,21 @@ function draw(now) {
       ctx.globalAlpha = Math.max(0, p.life / p.max);
       ctx.fillStyle = p.color;
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    } else if (p.type === 'chunk') {
+      const t = Math.max(0, p.life / p.max);
+      if (t > .45) {                // dark gobbet
+        ctx.globalAlpha = Math.min(1, t + .2);
+        ctx.fillStyle = '#0d1a10';
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillRect(-p.r * .8, -p.r * .55, p.r * 1.6, p.r * 1.1);
+        ctx.restore();
+      } else {                      // dissolving into green-gray smoke
+        ctx.globalAlpha = t * .7;
+        ctx.fillStyle = '#46643f';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * (1.4 + (.45 - t) * 4.5), 0, 7);
+        ctx.fill();
+      }
     } else if (p.type === 'conf') {
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
       ctx.fillStyle = 'hsl(' + p.hue + ',95%,60%)';
@@ -1402,6 +1589,19 @@ function draw(now) {
     ctx.beginPath(); ctx.arc(s.x, s.y, 22 * pulse, 0, 7); ctx.stroke();
     ctx.fillStyle = 'rgba(235,255,225,.95)';
     ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 7); ctx.fill();
+  }
+
+  // faint film grain over the whole frame: the pre-rendered tile fills the
+  // screen as one repeating pattern; cycling four fixed offsets makes it
+  // shimmer like film stock without computing anything new
+  if (running && scene && scene.grainPat && !remoteIsBig) {
+    const j = ((now / 130) | 0) % 4;
+    ctx.save();
+    ctx.translate([0, 31, 63, 17][j], [0, 47, 13, 59][j]);
+    ctx.globalAlpha = .07;
+    ctx.fillStyle = scene.grainPat;
+    ctx.fillRect(-96, -96, W + 192, H + 192);
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1470,7 +1670,7 @@ function setSilly(on, silent) {
   silly = on;
   document.body.classList.toggle('silly', on);
   try { localStorage.setItem('zh_silly', on ? '1' : '0'); } catch (e) {}
-  for (const e of enemies) e.spr = getSprite(e.kind); // live enemies swap costume
+  for (const e of enemies) dressEnemy(e); // live enemies swap costume + hit circle
   scene = null;                                       // scenery repaints next frame
   syncSillyUI();
   drawTitleArt();
@@ -2576,6 +2776,20 @@ window.__game = {
   get running() { return running; },
   get silly() { return silly; },
   setSilly,
+  // photoreal sprite status: which kinds run on image sprites right now
+  get photoSprites() { return Object.keys(photos); },
+  get photosPending() { return photosPending; },
+  get photoMeta() {
+    const m = {};
+    for (const [k, p] of Object.entries(photos))
+      m[k] = { aspect: +p.aspect.toFixed(3), eyes: p.eyes.map(e => e.map(v => +v.toFixed(3))) };
+    return m;
+  },
+  get particleCounts() {
+    const c = {};
+    for (const p of particles) c[p.type] = (c[p.type] || 0) + 1;
+    return c;
+  },
   get camOn() { return camOn; },
   get handsStatus() { return handsStatus; },
   get audio() { return { state: AC ? AC.state : null,
@@ -2617,10 +2831,11 @@ window.__game = {
     const kind = KINDS.find(k => k.id === id);
     if (!kind) return null;
     const size = kind.id === 'brute' ? enemySize() * 1.4 : enemySize();
-    enemies.push({ kind, size, r: size / 2, hp: kind.hp, t: 0, phase: 0, x, y,
-                   vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0,
-                   spr: getSprite(kind), pin: true });
-    return enemies[enemies.length - 1];
+    const e = { kind, size, r: size / 2, hp: kind.hp, t: 0, phase: 0, x, y,
+                vx: 0, vy: 0, g: 0, rot: 0, dir: -1, flash: 0, pin: true };
+    dressEnemy(e);
+    enemies.push(e);
+    return e;
   },
   sliceAll() { while (enemies.length) { enemies[0].hp = 1; slashEnemy(0, 0); } },
   // TEST ONLY: pretend camera + tracker are live so fed frames can drive the

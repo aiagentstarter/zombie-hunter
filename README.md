@@ -6,8 +6,9 @@ the ground, crawl, float, and swoop through a ruined moonlit city — you slash 
 never gore. No lives, no game over: the score climbs forever, lightning storms roll
 through, and every 25 kills the night celebrates you with a wolf howl.
 
-Everything is one file plus one image: [index.html](index.html) and `poster.png`
-(the title-screen art). No build step, no install, no server code.
+Everything is static files: [index.html](index.html), `poster.png` (the title-screen
+art), and the `sprites/` folder (the five photoreal enemy PNGs). No build step, no
+install, no server code.
 
 **🎉 Silly mode** flips the whole game into a bright purple-and-orange Halloween party
 for little kids — same enemies, goofy smiles, confetti goo, giggles instead of groans.
@@ -20,11 +21,13 @@ The camera **requires HTTPS**, which GitHub Pages gives you automatically.
 
 1. Go to <https://github.com/new>. Repository name: `zombie-hunter`. Keep it **Public**.
    Click **Create repository**.
-2. On the new repo page, click **uploading an existing file**, drag **both**
-   `index.html` **and `poster.png`** in, click **Commit changes**.
-   ⚠️ The poster must sit **next to index.html** (same folder) — it's the title-screen
-   background. If it's missing the game still runs, with a plain dark gradient instead.
-   *(Or from this folder: `git remote add origin https://github.com/YOURNAME/zombie-hunter.git && git push -u origin main`)*
+2. On the new repo page, click **uploading an existing file**, drag in `index.html`,
+   `poster.png`, **and the whole `sprites/` folder**, click **Commit changes**.
+   ⚠️ The poster must sit **next to index.html** and the five enemy PNGs must stay in
+   `sprites/` — that's where the game looks for them. Missing art never breaks the
+   game: no poster = plain dark gradient; a missing sprite = that enemy uses its
+   built-in drawn fallback.
+   *(Or from this folder: `git remote add origin https://github.com/YOURNAME/zombie-hunter.git && git push -u origin main` — the sprites are already committed)*
 3. In the repo: **Settings → Pages** (left sidebar). Under **Branch** pick `main`,
    folder `/ (root)`, click **Save**.
 4. Wait 1–2 minutes. Your game is at:
@@ -163,24 +166,40 @@ All in [index.html](index.html), top to bottom:
   howl, title heartbeat — and the giggles/boings of Silly mode. Quick combos pitch the
   splat up. The iOS audio plumbing (playback session, interrupted-state recovery,
   silent-loop ringer bypass, resume-on-any-tap) is inherited from Fruit Party untouched.
-- **Enemies** — five kinds, each painted once into an offscreen sprite canvas (2×, so
-  retina stays crisp) and stamped every frame, with pulsing glow drawn over the baked
-  eyes. The shambler and the 3-hit brute rise from below on a derived arc
-  (vy = -2h/T, g = 2h/T²); the crawler drags across the ground; the ghoul floats up on
-  a sine wobble; the bat swoops through. The brute staggers on each hit behind a 420 ms
-  shield (so one fast swipe can't chain all three hits), then bursts for +5.
+- **Enemies** — five kinds. In spooky mode each is a **photoreal PNG from `sprites/`**:
+  all five preload + decode behind the title screen, then get analyzed once on a
+  scratch canvas — the alpha bounding box sizes the **hit circle to the visible
+  creature** (not the file rectangle) and clusters of bright green pixels locate the
+  eyes for a pulsing glow overlay. Render time is one plain `drawImage` from the
+  pre-decoded image (no filters, nothing computed per frame), plus a slow 2–3 px
+  breathing bob so the stills feel alive. A sprite that fails to load leaves that
+  enemy on its drawn fallback. Silly mode always uses the drawn cartoon bodies.
+  Movement: the shambler and the 3-hit brute rise from below on a derived arc
+  (vy = -2h/T, g = 2h/T²); the crawler drags across the ground (flipped to face its
+  travel); the ghoul floats up on a sine wobble; the bat swoops through. The brute
+  flashes and staggers on each hit behind a 420 ms shield (so one fast swipe can't
+  chain all three hits), then bursts for +5.
+- **Sprite tooling** (not part of the deployed game) — `tools/prep_sprites.py` cleans
+  whatever you drop into `sprites/`: removes a plain background if the PNG isn't
+  transparent, defringes the matte, trims empty margins, downscales above 1024 px, and
+  saves optimized files. `tools/make_placeholder_sprites.py` is what painted the
+  current stand-in art.
 - **Slashing / collision** — every input (each finger, mouse, each tracked hand) keeps
   a ~0.3 s trail. An enemy dies when the **segment between the last two points** passes
   within its radius (fast swipes can't tunnel), *or* when the newest point rests inside
   it (a toddler holding a finger still kills zombies drifting by). Kills within 1 s
   chain a combo (x2, x3 … callout + rising pitch).
-- **The night** — scenery is cached in offscreen layers rebuilt on resize: green tint +
-  vignette (also drawn over the camera feed), the moon and its halo, two ruined
-  skylines, fog puffs, cloud streaks. Per frame only the cheap animated bits run:
-  flickering windows, drifting fog, rising embers. Lightning is a double-blink envelope
-  with thunder behind it; for one second per strike a pre-painted horde stands revealed
-  in the skyline (hidden in Silly mode). A storm rolls through every 30–60 s, and every
-  25 kills triggers a triple-strike celebration with a wolf howl.
+- **The night** — scenery is cached in offscreen layers rebuilt on resize: a deep
+  green tint + heavy vignette (also drawn over the camera feed), the moon and its
+  halo, two dimmed ruined skylines, slow fog puffs, cloud streaks, and **faint film
+  grain** (one pre-rendered tile stamped as a single repeating pattern fill per frame,
+  cycling four offsets so it shimmers like film stock). Per frame only the cheap
+  animated bits run: flickering windows, drifting fog, rising embers. Lightning is a
+  double-blink envelope with thunder behind it; for one second per strike a
+  pre-painted horde stands revealed in the skyline (hidden in Silly mode). A storm
+  rolls through every 30–60 s, and every 25 kills triggers a triple-strike celebration
+  with a wolf howl. Kills burst into glowing green ichor plus dark gobbets that tumble
+  and dissolve into green-gray smoke — never red.
 - **Hand tracking** — MediaPipe HandLandmarker (tasks-vision, pinned CDN version)
   watches the 640×480 selfie video and reports 21 landmarks per hand; we use #8, the
   index fingertip. Detection runs at ~15 Hz, the blade glides toward the newest
@@ -252,11 +271,24 @@ the 2-minute checklist below before game time.**
   (my toggle reached the peer; the peer's newer toggle flipped me back, with the
   friendly chip). Leave-room released everything.
 
+- **M6 photoreal sprite reskin**: all five `sprites/` PNGs loaded, decoded, and
+  analyzed (every kind reported two detected eyes; hit circles shrank to the visible
+  creature — e.g. the narrow zombie's radius dropped from 60 to 41 px). The synthetic
+  hand sweep killed each photo-sprite enemy through the real pipeline and the photo
+  brute took exactly 3 sweeps with stagger flashes. A triple kill spawned 26
+  chunk particles (12 from the brute) that were sampled again 800 ms later mid
+  smoke-phase. Silly toggle re-dressed live enemies drawn↔photo both directions.
+  Canvas stayed at full retina resolution (no perf-guard degradation) with sprites +
+  grain active; zero console errors throughout.
+
 ### Known issues / honest caveats
 
-- **`poster.png` is currently a generated placeholder** painted in the right palette
-  (ruined city, toxic green, moon, glowing eyes). Drop the real poster art over it —
-  same filename, nothing else changes. The title screen darkens whatever it gets.
+- **All art is currently generated placeholder art.** `poster.png` and the five
+  `sprites/*.png` are painted stand-ins in the right palette and poses — moody dark
+  silhouettes with glowing eyes, not the photoreal renders. Save your real renders
+  over the same filenames (any size; backgrounds OK), run
+  `python3 tools/prep_sprites.py` once, and re-upload — zero code changes. The
+  in-game eye-glow finds glowing green eyes in whatever art it gets.
 - **Physical-iPad smoke test pending** (needs a real device): camera permission flow,
   actual hand-tracking fps, audio after first tap, Creepster font load on cellular.
   Checklist: load URL → 🌙 Start → Allow → wave → green pill + glowing dot → zombie
