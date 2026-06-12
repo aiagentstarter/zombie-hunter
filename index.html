@@ -273,6 +273,8 @@
 <div id="panel" class="hidden">
   <h3>ZOMBIE SPEED</h3>
   <label>SLOW <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> FAST</label>
+  <h3>BRIGHTNESS</h3>
+  <label>DIM <input id="bright" type="range" min="0.5" max="2" step="0.05"> BRIGHT</label>
   <div id="audState"></div>
   <div id="roomSec">
     <h3>HUNT TOGETHER</h3>
@@ -374,6 +376,17 @@ $('speed').addEventListener('input', e => {
 });
 $('gear').addEventListener('click', () => { $('panel').classList.toggle('hidden'); updateAudState(); });
 $('closePanel').addEventListener('click', () => $('panel').classList.add('hidden'));
+
+// BRIGHTNESS — real displays vary wildly (the first hardware test proved
+// it); the slider multiplies the tone-mapping exposure, live, and saves
+let brightMul = 1;
+try { brightMul = parseFloat(localStorage.getItem('zh_bright')) || 1; } catch (e) {}
+$('bright').value = brightMul;
+$('bright').addEventListener('input', e => {
+  brightMul = parseFloat(e.target.value);
+  if (renderer) renderer.toneMappingExposure = BASE_EXPOSURE * brightMul;
+  try { localStorage.setItem('zh_bright', brightMul); } catch (err) {}
+});
 
 // ---------- sounds: tiny synthesized WebAudio, no files needed ----------
 // iOS rules, all handled here:
@@ -810,9 +823,11 @@ function update(dt, now) {
    does the detail work. No shadow maps anywhere.
    ===================================================================== */
 let renderer = null, scene3, camera, composer, bloomPass, gradePass;
-let dirLight, ambLight, moonHalo, camBaseQ = null;
+let dirLight, ambLight, moonHalo, flashlight, camBaseQ = null;
 let fires = [], windowGroups = [], hordeBoards = [];
-const FOG_COLOR = 0x041208, FOG_D = 0.055;
+const FOG_COLOR = 0x041208, FOG_D = 0.04; // tuning pass 1: one step thinner
+const BASE_EXPOSURE = 1.5;
+const EMISSIVE_FLOOR = 0x0a1a0c; // creatures may be dark, never pure black
 let PARTICLE_K = 1, degradeStep = 0, __fps = 60;
 
 // lightning: the 2D game's exact double-blink envelope, now driving the
@@ -827,7 +842,7 @@ function lightning() {
 
 // final color pass: vignette + animated grain + lightning wash + scare tint
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: .034 },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: .026 },
               uFlash: { value: 0 }, uScare: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
   fragmentShader: [
@@ -837,8 +852,9 @@ const GradeShader = {
     'void main(){',
     '  vec4 c = texture2D(tDiffuse, vUv);',
     '  float d = distance(vUv, vec2(.5,.46));',
-    '  c.rgb *= 1.0 - smoothstep(.4,1.0,d)*.66;',
-    '  c.rgb += (hash(vUv*977.0 + mod(uTime,97.0)) - .5) * uGrain;',
+    '  c.rgb *= 1.0 - smoothstep(.4,1.0,d)*.46;',
+    '  float luma = dot(c.rgb, vec3(.299,.587,.114));',
+    '  c.rgb += (hash(vUv*977.0 + mod(uTime,97.0)) - .5) * uGrain * clamp(luma*4.0, .12, 1.0);',
     '  c.rgb = mix(c.rgb, vec3(.83,1.0,.85), uFlash*.34);',
     '  c.rgb = mix(c.rgb, vec3(.04,.12,.06), uScare*smoothstep(.2,.85,d));',
     '  gl_FragColor = c;',
@@ -915,7 +931,7 @@ function initWorld() {
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); // perf budget cap
   renderer.setSize(W, H);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.5;
+  renderer.toneMappingExposure = BASE_EXPOSURE * brightMul; // BRIGHTNESS slider
 
   scene3 = new THREE.Scene();
   scene3.background = new THREE.Color(FOG_COLOR);
@@ -926,10 +942,18 @@ function initWorld() {
   camera.lookAt(0, 1.2, -12);
   camBaseQ = camera.quaternion.clone();
 
-  ambLight = new THREE.AmbientLight(0x1c3a26, 1.05);
-  dirLight = new THREE.DirectionalLight(0xbcd4ff, 1.1);
+  ambLight = new THREE.AmbientLight(0x1c3a26, 2.1);      // 2x: bodies, not voids
+  dirLight = new THREE.DirectionalLight(0xbcd4ff, 1.6);  // cool moon rim, boosted
   dirLight.position.set(-14, 30, -20);
   scene3.add(ambLight, dirLight);
+
+  // the player's flashlight — genre-correct fix from the first hardware
+  // test: the night stays dark, YOUR light reveals what's coming. Warm,
+  // soft-edged cone, no shadows, follows the camera (and its shake).
+  flashlight = new THREE.SpotLight(0xfff0d2, 30, 24, .42, .55, 1.5);
+  flashlight.position.set(0, 1.55, .2);
+  flashlight.target.position.set(0, .8, -16);
+  scene3.add(flashlight, flashlight.target);
 
   // ground: wet asphalt — low roughness + the cold moonlight = the sheen
   const groundMat = new THREE.MeshStandardMaterial({ color: 0x4a554c, roughness: .35, metalness: .18 });
@@ -1133,6 +1157,9 @@ function render(now) {
     camera.position.set(0, 1.6, 0);
     camera.quaternion.copy(camBaseQ);
   }
+  // the flashlight is in your hand: it inherits the camera's jitter
+  flashlight.position.set(camera.position.x, camera.position.y - .05,
+                          camera.position.z + .2);
 
   updateRibbons(now);
   updateMarkers(now);
@@ -1371,7 +1398,12 @@ const GLB_FILES = { shambler: 'models/zombie.glb', crawler: 'models/crawler.glb'
       const size = new THREE.Vector3();
       box.getSize(size);
       gltf.userData = { rawH: Math.max(size.y, .01), rawMinY: box.min.y };
-      gltf.scene.traverse(o => { if (o.material) o.material.fog = true; });
+      gltf.scene.traverse(o => {
+        if (o.material) {
+          o.material.fog = true;
+          if (o.material.emissive) o.material.emissive.setHex(EMISSIVE_FLOOR);
+        }
+      });
       glbs[kid] = gltf;
     } catch (e) { /* billboard fallback */ }
   }
@@ -1409,7 +1441,8 @@ function dressEnemy(e) {
     const bt = billboardTexFor(kid);
     const w = Math.min(P.h * bt.aspect, P.h * 2.6);
     const mat = new THREE.MeshLambertMaterial({ map: bt.tex, alphaTest: .25,
-                                                side: THREE.DoubleSide });
+                                                side: THREE.DoubleSide,
+                                                emissive: EMISSIVE_FLOOR });
     e.mesh = new THREE.Mesh(bbGeo, mat);
     e.mesh.scale.set(w, P.h, 1);
     e.meshYOff = 0;
@@ -1440,7 +1473,7 @@ function spawn() {
   if (kind.id === 'brute') lastBrute = now;
   const P = ENEMY3D[kind.id];
   const e = { kind, hp: kind.hp, t: 0, phase: rand(0, 6.28), flash: 0, kick: 0,
-              x: rand(-5.5, 5.5), z: -rand(28, 36), xAim: rand(-1.6, 1.6),
+              x: rand(-5.5, 5.5), z: -rand(22, 30), xAim: rand(-1.6, 1.6),
               spd: rand(P.speed[0], P.speed[1]) * speedMul,
               baseY: P.y0, cy: P.y0, gaitY: 0, roll: 0, stomp: 0,
               sx: -999, sy: -999, sr: 0, hittable: false };
@@ -1506,13 +1539,17 @@ function updateEnemies(dt, now) {
                                    camera.position.z - e.z);
     e.mesh.position.set(e.x, e.cy + e.meshYOff, e.z);
     e.mesh.rotation.set(0, yaw, e.roll);
-    if (e.eyeMat)
-      e.eyeMat.opacity = (.5 + .3 * Math.sin(now / 170 + e.phase)) *
-        Math.max(.25, Math.min(1, 1 - (-e.z - 20) / 12));
+    if (e.eyeMat) {
+      // eyes get HOTTER with distance: far enemies are trackable by their
+      // glow long before their bodies resolve out of the fog
+      const far = Math.min(1.9, Math.max(1, 1 + (-e.z - 8) / 18));
+      e.eyeMat.color.setRGB(.7 * far, 2.1 * far, .5 * far);
+      e.eyeMat.opacity = .55 + .3 * Math.sin(now / 170 + e.phase);
+    }
     if (e.flash > 0 && e.mesh.material) { // brute stagger: white-hot emissive pulse
       e.mesh.material.emissive.setScalar(e.flash * .9);
     } else if (e.mesh.material && e.mesh.material.emissive) {
-      e.mesh.material.emissive.setScalar(0);
+      e.mesh.material.emissive.setHex(EMISSIVE_FLOOR); // back to the readable floor
     }
     e.blob.position.set(e.x, .02, e.z);
     const alt = Math.max(0, e.cy - P.y0 * .5);
@@ -1589,7 +1626,7 @@ function projectEnemies() {
     const dist = Math.hypot(e.x - camera.position.x, e.cy - camera.position.y,
                             e.z - camera.position.z);
     e.sr = Math.max((e.worldR * projK) / Math.max(dist, .5), 26); // 26px floor: deep
-    e.hittable = !behind && e.z > -22 &&                          // targets stay fair
+    e.hittable = !behind && e.z > -24 &&                          // targets stay fair
                  e.sx > -60 && e.sx < W + 60 && e.sy > -60 && e.sy < H + 60;
   }
 }
@@ -2926,6 +2963,13 @@ window.__game = {
   get fps() { return Math.round(__fps); },
   get degradeStep() { return degradeStep; },
   setDegrade,
+  // acceptance-gate hook: raw readability screenshots are taken with bloom
+  // OFF — visibility must never depend on bloom or lightning
+  setBloom(on) { bloomPass.enabled = !!on; },
+  setBrightness(v) {
+    brightMul = v;
+    renderer.toneMappingExposure = BASE_EXPOSURE * brightMul;
+  },
   get drawCalls() { return renderer ? renderer.info.render.calls : 0; },
   // TEST ONLY: pretend camera + tracker are live so fed frames can drive the
   // real pipeline without hardware. No landmarker exists — detection idles
