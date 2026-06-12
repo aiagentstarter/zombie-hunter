@@ -786,6 +786,22 @@ function showCombo(n) {
 let shakeAmp = 0;
 function addShake(a) { shakeAmp = Math.min(12, shakeAmp + a); }
 
+// time dilation: hitstop on kills, slow-mo on finishers. Only the WORLD
+// dt is scaled — every contractual clock (versus turns, combo window,
+// brute shield, scare cooldown, storms, trails, input, tracking) is
+// wall-time and keeps running, so the frozen engine contracts hold.
+// .05 not 0: a residual crawl reads as impact, and the decay math
+// (pow(k, dt)) stays well-behaved.
+let stopUntil = 0, slowUntil = 0, slowK = 1;
+function hitstop(ms) { stopUntil = Math.max(stopUntil, performance.now() + ms); }
+function slowmo(ms, k) {
+  slowUntil = Math.max(slowUntil, performance.now() + ms);
+  slowK = k;
+}
+function timeScaleAt(now) {
+  return now < stopUntil ? .05 : now < slowUntil ? slowK : 1;
+}
+
 // glowing green ichor — never red
 const ICHOR = ['#7dff5e', '#4ddb3a', '#b6ff7a', '#2fae22'];
 
@@ -1186,9 +1202,10 @@ function render(now) {
 let last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min((now - last) / 1000, .05);
+  const wdt = Math.min((now - last) / 1000, .05);
   last = now;
-  if (running) { update(dt, now); projectEnemies(); detectHands(now); versusTick(now); }
+  const ts = timeScaleAt(now); // hitstop/slow-mo scale the world, not the clocks
+  if (running) { update(wdt * ts, now); projectEnemies(); detectHands(now); versusTick(now); }
   render(now);
   updatePill(now);
   perfGuard(now);
@@ -2914,11 +2931,13 @@ window.__game = {
   // starves the loop mid-test; one call = one update step of `ms` game time)
   tick(ms) {
     const now = performance.now();
-    update((ms || 16) / 1000, now);
+    update((ms || 16) / 1000 * timeScaleAt(now), now); // production parity
     projectEnemies();
     versusTick(now);
     updatePill(now);
   },
+  get timeScale() { return timeScaleAt(performance.now()); },
+  cancelTimefx() { stopUntil = 0; slowUntil = 0; slowK = 1; },
   // audio attestation (module scope hides the voices from page eval)
   testVoice(name) {
     const V = { playPop, playGrunt, playGroan, playWhisper, playScreech,
