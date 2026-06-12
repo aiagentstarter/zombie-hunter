@@ -122,18 +122,27 @@ appear top-left on both screens.
 
 ## How the 3D night works (quick tour)
 
-All in [index.html](index.html) (~2,900 lines, one module script):
+All in [index.html](index.html) (~3,500 lines, one module script):
 
 - **Boot gate** — import-map + WebGL detection in a tiny classic script: unsupported
   devices redirect to classic.html before anything loads; a watchdog shows a friendly
   escape hatch if the CDN fails. Three.js r0.184.0 pinned via import map.
 - **The street** — merged-geometry building slabs (each wall remembers its face so
-  emissive windows sit flush), far silhouette skyline, debris, a flipped car. Wet
-  asphalt = low-roughness standard material under one cold directional moonlight.
-  Heavy `FogExp2` is the star: enemies spawn ~93% fogged, eyes first.
-- **Light** — the moon disc is deliberately kept *below* the bloom threshold (its
-  halo sprite provides the aura) so bloom is reserved for true emitters: flickering
-  windows, enemy eyes, the slash. Two warm point-light fires flicker by the road.
+  emissive windows sit flush), far silhouette skyline, debris, a flipped car. Damp
+  asphalt under one cold directional moonlight (kept rough on purpose: a glossy
+  floor mirrors the flashlight's specular lobe straight back into the camera as a
+  giant clipped pool). Heavy `FogExp2`: enemies spawn deeply fogged, eyes first.
+- **Light** — every lighting level lives in one set of constants (`AMB_BASE`,
+  `DIR_BASE`, `RIM_BASE`, `FL_BASE`) consumed by BOTH the world setup and the
+  per-frame lightning envelope — values set only at init are dead code one frame
+  later. Your flashlight rakes hot down the center of the street; a cool rim light
+  from behind the horde separates silhouettes from the dark. The gear menu's
+  BRIGHTNESS slider (0.5–2, saved) scales the light rig itself, never the
+  exposure — exposure lifts the flat fog color and washes the night gray. The
+  moon disc is deliberately kept *below* the bloom threshold (its halo sprite
+  provides the aura); bloom thresholds at clip-only so it's reserved for true
+  emitters: flickering windows, enemy eyes, the slash. Readability never depends
+  on bloom or lightning — acceptance screenshots are taken with bloom OFF.
 - **Post** — half-res UnrealBloom, then one custom grade pass doing vignette +
   animated film grain + lightning whitewash + the claw-scare tint, then OutputPass
   (ACES). Lightning re-uses the 2D double-blink envelope to spike the lights, burn
@@ -145,29 +154,50 @@ All in [index.html](index.html) (~2,900 lines, one module script):
   scene) cut from `sprites/` via an in-browser analyzer that finds the visible
   bounding box and the glowing eyes; additive >1-green eye planes pierce the fog.
   Tier 2: `models/<kind>.glb`, height-normalized, walk clip auto-selected.
+  At ~3.4m (brutes 3.8m) an enemy **lunges**: a 150ms ramp to a per-kind burst
+  speed, pounce dip, hard steer onto you, eyes flaring 1.5x, animation at double
+  speed — announced by a roar (brute) or a panned stinger (everything else). A
+  global 600ms limiter keeps a pack from pouncing in unison.
+- **The wave director** (solo only) — horror pacing instead of a metronome:
+  LULL (no spawns, but panned groans and shuffles talk from the dark; shrinks
+  from 9s toward 3.5s as kills mount) → CLUSTER (2–4 enemies pushing in down a
+  shared lane) → CLEARING → a few seconds of QUIET opened by a tritone stinger →
+  LULL again. Score climbs forever. Versus rooms keep the legacy fixed cadence
+  verbatim, so both ends of a match see the same economy even across versions.
 - **Slashing** — every input (finger, mouse, each tracked hand at ~15 Hz with
   between-frame interpolation) keeps a ~0.3s screen-space trail. Enemies project to
   screen circles each frame (26px minimum so deep targets stay fair) and the trail's
   segment+point collision — the proven 2D engine math, unchanged — does the rest.
   The visible slash is a tapered additive ribbon unprojected 2.2m in front of the
   camera, tail green, head hotter than 1.0 so the bloom ignites it, spitting embers.
-- **Kills** — additive ichor burst (never red), the body crumples, sinks and fades
-  while dark smoke rises; a stencil +1/+5 floats up. Brutes take 3 hits behind a
-  420ms shield (one fast swipe can't chain them), stagger with a white-hot flash and
-  a shove, and finish with a roar. Kills within 1s chain x2/x3 combos. Every 25th
-  kill: triple lightning + wolf howl.
+- **Kills** — a kill LANDS: 60ms hitstop (only the world freezes — every
+  contractual clock is wall-time), a hot slash flash along the cut, an ichor fan
+  arcing toward the camera (never red) with droplets that splat and spread on the
+  street, and the corpse is SHOVED along the cut as it crumples into smoke; a
+  stencil +1/+5 floats up. Brutes take 3 hits behind a 420ms shield (one fast
+  swipe can't chain them), stagger with a white-hot flash, and die into a 400ms
+  quarter-speed finisher with a sub-boom. Kills within 1s chain combos: a
+  pentatonic ladder climbs with each link, a thin ember bar under the callout
+  drains the 1s window (glows at x3, pulses at x6), and a soft thud marks a
+  broken chain. Every 25th kill: triple lightning + wolf howl.
 - **The scare** — an enemy that reaches you despawns into smoke with a camera jolt,
   claw streaks (near-black + toxic rim), a roar and fabric-rip rasps. 1.5s cooldown,
   score untouched. Tension, no game over.
-- **Sound** — 100% synthesized WebAudio (no files): wet splat, groans, whisper,
-  screech, layered brute roar, deep rolling thunder, wolf howl, title heartbeat,
-  claw rasps. The iOS audio plumbing (playback session, interrupted-state recovery,
-  silent-loop ringer bypass, resume-on-any-tap) is the proven engine from classic,
+- **Sound** — 100% synthesized WebAudio (no files), all routed through one bus:
+  master → compressor, with a synthesized-impulse convolver reverb send (every
+  sound sits in a SPACE) and a waveshaper grit path for roars and impacts. A
+  looped drone bed (lowpassed noise + a detuned 55/55.7Hz pair beating at 0.7Hz)
+  hums under the night; a dynamic heartbeat tracks the nearest enemy from 1400ms
+  calm down to ~450ms at 3m. Voices: chunky kill impact, dark pannable groans,
+  wet shuffles, guttural grit roars, lunge stinger, finisher sub-boom, combo
+  ladder + break thud, tritone lull stinger, thunder, wolf howl, claw rasps. The
+  iOS audio plumbing (playback session, interrupted-state recovery, silent-loop
+  ringer bypass, resume-on-any-tap) is the proven engine from classic,
   byte-identical.
-- **Perf** — pixel ratio capped at 1.5, max 8 enemies, no shadow maps, no AA,
-  merged draw calls. If fps sags: bloom off → grain off → fewer particles → lower
-  resolution → fewer enemies, one-way, never touching tracking. A pause-gap guard
-  keeps a slept tab from faking "slow".
+- **Perf** — pixel ratio capped at 1.5, max 4 enemies (3–4 readable threats beat
+  8 wallpaper ones), no shadow maps, no AA, merged draw calls. If fps sags: bloom
+  off → grain off → fewer particles → lower resolution → max 3 enemies, one-way,
+  never touching tracking. A pause-gap guard keeps a slept tab from faking "slow".
 - **Multiplayer** — MQTT rooms, the Versus protocol (retained ~200-byte JSON,
   device-authoritative turns, sequence numbers) and WebRTC perfect negotiation are
   the classic engine, ported verbatim.
@@ -230,6 +260,25 @@ language, no kid-friendly elements). **Physical iPad/iPhone smoke test pending.*
   verified cleared, LEAVE ROOM clean. Found + fixed: a dangling `_mode` handler
   call (classic devices publish it) — now explicitly ignored; verified live with a
   fake classic peer in the room (board showed them, no errors).
+- **Tuning pass 1+2** (after the first real-hardware play): found the root cause
+  of "still too dark" — the per-frame lightning envelope overwrote the light
+  intensities with stale constants, so every init-time boost was dead code one
+  frame later; all levels now live in shared constants used by both sites.
+  Flashlight rake + rim light + brightness slider (drives the light rig, not
+  exposure). Kill feel: hitstop frozen across `tick(50)` while an observer enemy
+  held still, corpse knocked +0.6m along the cut / −0.5m away over 240ms, 34
+  blood particles per kill, combo bar draining `scaleX(.999→.694)` across 220ms.
+  Lunge: unpinned ghoul at 3.6m lunged at −3.33m and covered 1.5m in 300ms
+  (exactly its 5.0 m/s burst); pack limiter held a trailing shambler. Director
+  cycled quiet→lull(9s)→cluster(2 spawns, shared lane)→clearing→quiet→lull on a
+  live 14s page recording. Bloom soup root-caused to the glossy floor mirroring
+  the flashlight's specular lobe back into the camera — roughened, re-shot clean
+  at slider 0.5/1/2. Acceptance gates (all bloom OFF, default brightness):
+  mid-lunge ghoul at 2.85m fully readable; five-kind lineup at 10–12m readable
+  (crawler smallest by design, lit in-beam). Full suite re-run green: touch 4/4,
+  hand 4/4 through the real detection pipeline, brute 3-hit on BOTH paths with
+  the same-instant double-swipe blocked by the shield, scare fired + despawned,
+  16/16 voices attested (AudioContext running), 59–60fps, degrade step 0.
 
 ### Known issues / honest caveats
 
