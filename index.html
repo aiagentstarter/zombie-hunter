@@ -2291,6 +2291,14 @@ window.__game = {
     return enemies[enemies.length - 1];
   },
   sliceAll() { while (enemies.length) { enemies[0].hp = 1; slashEnemy(0, 0); } },
+  // TEST ONLY: pretend camera + tracker are live so fed frames can drive the
+  // real pipeline without hardware. No landmarker exists — detection idles
+  // whenever the fed queue is empty (cam.readyState stays 0), so this can
+  // never call into MediaPipe by accident.
+  enableHandsForTest() {
+    camOn = true; handsOK = true; handsStatus = 'on';
+    lastHandSeen = performance.now();
+  },
   // feed synthetic index-fingertip positions ([nx,ny] in camera coords, null =
   // empty frame) through the REAL detection pipeline, one per detection tick
   feedLandmarks(frames) {
