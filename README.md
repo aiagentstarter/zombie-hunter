@@ -40,10 +40,11 @@ is used for movement (death animations: the engine currently uses its own crumpl
 dissolve for all kills). The loader measures and rescales every model to its enemy's
 height, so Mixamo's units don't matter.
 
-**Until real art lands:** the five PNGs in `sprites/` are generated **dark-silhouette
-placeholders** (gaunt shapes, glowing eyes). The engine supplies night, fog, lighting
-and depth — visible creature detail comes from your art. Save photoreal renders over
-`sprites/*.png` (then run `python3 tools/prep_sprites.py`) or do the Mixamo run above.
+**Current status: four real Mixamo creatures are in.** `models/` ships zombie.glb
+(1.1 MB), crawler.glb (0.9 MB), ghoul.glb (1.0 MB) and brute.glb (2.5 MB) — converted
+and texture-optimized (1024px WebP) by the tool above. Only the **bat** still uses a
+billboard, and its sprite is a generated dark silhouette; replace `sprites/bat.png`
+with a real render any time (then `python3 tools/prep_sprites.py`).
 
 ---
 
@@ -181,7 +182,7 @@ All in [index.html](index.html) (~2,900 lines, one module script):
 | poster.png + fonts | always | ~0.2 MB |
 | mqtt.min.js (CDN) | only on JOIN ROOM | 0.18 MB |
 | MediaPipe wasm + hand model (CDN) | only in camera mode | ~8 MB, cached |
-| models/*.glb | only if you add them | ≤ ~1.2 MB each recommended |
+| models/*.glb (4 committed creatures) | always | 5.5 MB total |
 
 ## Texture sources (CC0 — Poly Haven)
 
@@ -232,10 +233,10 @@ language, no kid-friendly elements). **Physical iPad/iPhone smoke test pending.*
 
 ### Known issues / honest caveats
 
-- **All creature art is placeholder.** `sprites/*.png` are generated dark
-  silhouettes; bodies read as shadows with glowing eyes (deliberately rule-safe).
-  Drop in photoreal renders or Mixamo GLBs for visible creatures — the engine side
-  (fog, moonlight, eye glow, bloom) is done and waiting.
+- **Four of five creatures are real rigged models** (Mixamo: zombie walk, zombie
+  crawl, floating ghoul, mutant brute — moonlit, animated, fog-piercing eyes). The
+  bat is still a generated-silhouette billboard; the other four `sprites/*.png`
+  remain only as automatic fallbacks if a GLB fails to load.
 - Physical-device smoke test pending: camera permission flow, real hand-tracking
   fps, audio after first tap, real GPU thermals. Checklist: load → START — CAMERA
   ON → Allow → wave → green pill + glowing dot → slash kills → MENU works.
