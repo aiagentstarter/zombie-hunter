@@ -2849,6 +2849,14 @@ window.__game = {
     update((ms || 16) / 1000, performance.now());
     projectEnemies();
   },
+  // audio attestation (module scope hides the voices from page eval)
+  testVoice(name) {
+    const V = { playPop, playGrunt, playGroan, playWhisper, playScreech,
+                playRoar, playThunder, playHowl, playClaw, playCheer };
+    if (!V[name]) return 'unknown';
+    V[name](1);
+    return 'ok';
+  },
   get room() { return room && { code: room.code, peers: [...room.peers.keys()], connected: room.client.connected }; },
   get versus() { return versus && { st: versus.st, a: versus.a, r: versus.r, w: [...versus.w],
     ts: versus.ts && [...versus.ts], fin: versus.fin, myIdx: versus.myIdx,
