@@ -475,7 +475,76 @@ function updateAudState() {
   el.textContent = 'AUDIO: ' + (AC ? AC.state : 'not started — tap START first') + sess;
 }
 setInterval(updateAudState, 1000);
-function tone(f0, f1, dur, type, vol, delay) {
+
+/* ---------- the bus: every voice goes through one master chain ----------
+   master gain -> compressor -> speakers, with two sends: a convolver
+   loaded with a synthesized 1.7s decaying-noise impulse (a real SPACE —
+   the single biggest de-goofifier) and a tanh waveshaper for grit on
+   roars and impacts. Built lazily on the AC that the FROZEN initAudio
+   created; this code never creates or resumes an AudioContext. */
+let BUS = null;
+function bus() {
+  if (!AC) return null;
+  if (BUS) return BUS;
+  try {
+    const comp = AC.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 5;
+    comp.attack.value = .004; comp.release.value = .18;
+    const master = AC.createGain();
+    master.gain.value = .85;
+    master.connect(comp);
+    comp.connect(AC.destination);
+    const conv = AC.createConvolver();
+    const len = (AC.sampleRate * 1.7) | 0;
+    const ir = AC.createBuffer(2, len, AC.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++)
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+    conv.buffer = ir;
+    const verbIn = AC.createGain();
+    verbIn.connect(conv);
+    conv.connect(master);
+    const shaper = AC.createWaveShaper();
+    const cur = new Float32Array(257);
+    for (let i = 0; i < 257; i++) cur[i] = Math.tanh(2.6 * (i / 128 - 1));
+    shaper.curve = cur;
+    const shaperOut = AC.createGain();
+    shaperOut.gain.value = .8;
+    shaper.connect(shaperOut);
+    shaperOut.connect(master);
+    BUS = { master, verbIn, shaper };
+  } catch (e) {
+    BUS = { master: null, verbIn: null, shaper: null }; // ancient browser: raw out
+  }
+  return BUS;
+}
+// route a voice: dry to master (+ optional reverb send + optional stereo pan)
+function out(node, send, pan) {
+  const B = bus();
+  if (!B || !B.master) { try { node.connect(AC.destination); } catch (e) {} return; }
+  let n = node;
+  if (pan && AC.createStereoPanner) {
+    const p = AC.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    node.connect(p);
+    n = p;
+  }
+  n.connect(B.master);
+  if (send && B.verbIn) {
+    const s = AC.createGain();
+    s.gain.value = send;
+    n.connect(s);
+    s.connect(B.verbIn);
+  }
+}
+function grit(node) { // grit path for roars/impacts; falls back to dry
+  const B = bus();
+  if (B && B.shaper) node.connect(B.shaper); else out(node);
+}
+
+function tone(f0, f1, dur, type, vol, delay, send, pan) {
   if (!AC) return;
   const t = AC.currentTime + (delay || 0);
   const o = AC.createOscillator(), g = AC.createGain();
@@ -484,12 +553,13 @@ function tone(f0, f1, dur, type, vol, delay) {
   o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + dur);
   g.gain.setValueAtTime(vol || .4, t);
   g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  o.connect(g).connect(AC.destination);
+  o.connect(g);
+  out(g, send, pan);
   o.start(t); o.stop(t + dur + .05);
 }
 // shared noise maker: a decaying noise burst through one filter — this is
 // the raw material for splats, rasps and thunder
-function noiseBurst(dur, type, freq, q, vol, delay) {
+function noiseBurst(dur, type, freq, q, vol, delay, send, pan) {
   if (!AC) return;
   const t0 = AC.currentTime + (delay || 0);
   const len = Math.max(1, Math.floor(AC.sampleRate * dur));
@@ -498,61 +568,128 @@ function noiseBurst(dur, type, freq, q, vol, delay) {
   const src = AC.createBufferSource(); src.buffer = buf;
   const f = AC.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
   const g = AC.createGain(); g.gain.value = vol;
-  src.connect(f); f.connect(g); g.connect(AC.destination);
+  src.connect(f); f.connect(g);
+  out(g, send, pan);
   src.start(t0);
 }
 
-function playPop(pitchUp) { // wet slash-splat (combos pitch it up)
+function playPop(pitchUp) { // CHUNKY kill impact (combos still pitch it up)
   if (!AC) return;
   const p = pitchUp || 1;
-  tone(150 * p, 45, .16, 'square', .32);                 // squelchy body
-  tone(420 * p, 90, .07, 'sawtooth', .16);               // the blade's edge
-  noiseBurst(.12, 'lowpass', 900 * Math.sqrt(p), 2.5, .5, 0); // the wet part
+  const t = AC.currentTime;
+  const o = AC.createOscillator(), g = AC.createGain(); // meaty body, gritted
+  o.type = 'square';
+  o.frequency.setValueAtTime(110 * p, t);
+  o.frequency.exponentialRampToValueAtTime(38, t + .14);
+  g.gain.setValueAtTime(.5, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + .16);
+  o.connect(g);
+  grit(g);
+  o.start(t); o.stop(t + .2);
+  noiseBurst(.1, 'lowpass', 700 * Math.sqrt(p), 1.5, .6, 0, .15); // wet crunch
+  noiseBurst(.05, 'highpass', 2400, 1, .25, 0);                   // blade snap
+  tone(58, 30, .12, 'sine', .6, 0, .1);                           // sub thock
 }
-function playGrunt() { // brute takes a hit
-  tone(130, 60, .18, 'square', .35);
-  noiseBurst(.1, 'lowpass', 500, 1, .25, 0);
+function playGrunt() { // brute takes a hit — low, gritted
+  if (!AC) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'square';
+  o.frequency.setValueAtTime(90, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + .18);
+  g.gain.setValueAtTime(.45, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + .2);
+  o.connect(g);
+  grit(g);
+  o.start(t); o.stop(t + .25);
+  noiseBurst(.1, 'lowpass', 400, 1, .25, 0, .2);
 }
-function playGroan() { // low zombie moan wobbling downward
+function playGroan(pan, dist) { // dark distant moan, mostly space
+  if (!AC) return;
+  const t = AC.currentTime;
+  const vol = Math.max(.05, .18 - .11 * Math.min(1, (dist || 0) / 30));
+  const o = AC.createOscillator(), o2 = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(65, t);
+  o.frequency.linearRampToValueAtTime(48, t + .6);
+  o.frequency.linearRampToValueAtTime(56, t + 1.1);
+  o.frequency.linearRampToValueAtTime(40, t + 1.8);
+  o2.type = 'sine'; // sub octave under it
+  o2.frequency.setValueAtTime(32, t);
+  const f = AC.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 240; f.Q.value = 6;
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + .25);
+  g.gain.exponentialRampToValueAtTime(.001, t + 1.9);
+  o.connect(f); o2.connect(f); f.connect(g);
+  out(g, .8, pan);
+  o.start(t); o.stop(t + 2);
+  o2.start(t); o2.stop(t + 2);
+}
+function playWhisper() { // ghoul: a cold draft of air
+  noiseBurst(.5, 'highpass', 2400, .6, .05, 0, .6);
+  tone(420, 200, .5, 'sine', .05, 0, .6);
+}
+function playScreech() { // bat: darker, raspier chirps
+  tone(1900, 700, .12, 'sawtooth', .08, 0, .3);
+  tone(1500, 600, .1, 'sawtooth', .07, .13, .3);
+}
+function playShuffle(pan) { // wet dragging steps somewhere in the dark
+  noiseBurst(.12, 'lowpass', 480, 2, .12, 0, .7, pan);
+  noiseBurst(.09, 'lowpass', 430, 2, .09, .13, .7, pan);
+  tone(90, 60, .08, 'sine', .06, .05, .5, pan);
+}
+function playRoar(big) { // guttural: low duo with a growl curve, through grit
+  if (!AC) return;
+  const t = AC.currentTime, dur = big ? 1.1 : .6, v = big ? .9 : .5;
+  for (const [f0, type] of [[45, 'sawtooth'], [70, 'square']]) {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type;
+    const curve = new Float32Array(16); // ragged breath, falls off
+    for (let i = 0; i < 16; i++)
+      curve[i] = Math.max(20, f0 * (1 + (Math.random() * .16 - .08)) * (1 - i / 24));
+    o.frequency.setValueAtTime(f0, t);
+    try { o.frequency.setValueCurveAtTime(curve, t + .02, dur - .04); } catch (e) {}
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + .07);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(g);
+    grit(g);
+    o.start(t); o.stop(t + dur + .05);
+  }
+  noiseBurst(dur * .7, 'lowpass', 200, 1.5, v * .4, 0, .5); // breath rasp in space
+}
+function playLungeStinger(pan) { // it LUNGES: shriek + slam, make them flinch
   if (!AC) return;
   const t = AC.currentTime;
   const o = AC.createOscillator(), g = AC.createGain();
   o.type = 'sawtooth';
-  o.frequency.setValueAtTime(95, t);
-  o.frequency.linearRampToValueAtTime(70, t + .35);
-  o.frequency.linearRampToValueAtTime(82, t + .6);
-  o.frequency.linearRampToValueAtTime(55, t + 1);
-  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320; f.Q.value = 4;
-  g.gain.setValueAtTime(.0001, t);
-  g.gain.exponentialRampToValueAtTime(.2, t + .12);
-  g.gain.exponentialRampToValueAtTime(.001, t + 1.05);
-  o.connect(f); f.connect(g); g.connect(AC.destination);
-  o.start(t); o.stop(t + 1.1);
+  o.frequency.setValueAtTime(1400, t);
+  o.frequency.exponentialRampToValueAtTime(220, t + .18);
+  g.gain.setValueAtTime(.3, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + .2);
+  o.connect(g);
+  grit(g);
+  o.start(t); o.stop(t + .25);
+  noiseBurst(.3, 'highpass', 1800, 2, .5, 0, .4, pan);
+  tone(90, 45, .25, 'sine', .5, .02, .3);
 }
-function playWhisper() { // ghoul: a cold draft of air
-  noiseBurst(.5, 'highpass', 2400, .6, .05, 0);
-  tone(420, 200, .5, 'sine', .05);
+function playFinisher() { // the brute drops: a boom you feel
+  tone(48, 24, .9, 'sine', .9, 0, .7);
+  noiseBurst(1.2, 'lowpass', 110, .8, .6, 0, .7);
 }
-function playScreech() { // bat: two falling chirps
-  tone(2600, 1100, .12, 'square', .12);
-  tone(2100, 900, .1, 'square', .1, .13);
+const COMBO_STEPS = [0, 3, 5, 7, 10, 12, 15, 17, 19]; // minor pentatonic climb
+function playComboTone(n) {
+  const f = 220 * Math.pow(2, COMBO_STEPS[Math.min(n, 8)] / 12);
+  tone(f, f * 1.01, .12, 'triangle', .22, 0, .25);
 }
-function playRoar(big) { // brute: layered low growl that rears up then drops
-  if (!AC) return;
-  const t = AC.currentTime, dur = big ? .9 : .5, v = big ? .5 : .28;
-  for (const [f0, f1, type] of [[60, 38, 'sawtooth'], [92, 55, 'square']]) {
-    const o = AC.createOscillator(), g = AC.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, t);
-    o.frequency.linearRampToValueAtTime(f0 * 1.25, t + dur * .3);
-    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    g.gain.setValueAtTime(.0001, t);
-    g.gain.exponentialRampToValueAtTime(v, t + .06);
-    g.gain.exponentialRampToValueAtTime(.001, t + dur);
-    o.connect(g).connect(AC.destination);
-    o.start(t); o.stop(t + dur + .05);
-  }
-  noiseBurst(dur * .8, 'lowpass', 240, 1.5, v * .5, 0); // breathy rasp
+function playComboBreak() { // the chain slips: soft thud
+  tone(140, 60, .18, 'sine', .3, 0, .2);
+  noiseBurst(.12, 'lowpass', 300, 1, .2, 0, .2);
+}
+function playLullStinger() { // the quiet between waves is not comfort
+  tone(1244, 1180, 1.2, 'sine', .12, 0, .9);
+  tone(622, 590, 1.2, 'sine', .08, .05, .9);
 }
 function playThunder(soft) { // deep rolling rumble, two overlapping waves
   if (!AC) return;
@@ -575,8 +712,53 @@ function playHowl() { // lonely wolf: rise, hold with vibrato, fall away
   g.gain.exponentialRampToValueAtTime(.32, t + .2);
   g.gain.setValueAtTime(.32, t + 1.1);
   g.gain.exponentialRampToValueAtTime(.001, t + 1.6);
-  o.connect(g).connect(AC.destination);
+  o.connect(g);
+  out(g, .6); // a howl needs the night air
   o.start(t); o.stop(t + 1.7);
+}
+
+// ---------- the drone: the night has a sound, barely there ----------
+let DRONE = null;
+function startDrone() {
+  const B = bus();
+  if (!B || !B.master || DRONE) return;
+  try {
+    const t = AC.currentTime;
+    const master = AC.createGain();
+    master.gain.setValueAtTime(.0001, t);
+    master.gain.linearRampToValueAtTime(1, t + 3);
+    const len = AC.sampleRate * 4; // looped noise floor
+    const buf = AC.createBuffer(1, len, AC.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = AC.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const nf = AC.createBiquadFilter();
+    nf.type = 'lowpass'; nf.frequency.value = 220; nf.Q.value = .7;
+    const ng = AC.createGain();
+    ng.gain.value = .05;
+    src.connect(nf); nf.connect(ng); ng.connect(master);
+    const of2 = AC.createBiquadFilter(); // detuned low pair: a 0.7Hz beat
+    of2.type = 'lowpass'; of2.frequency.value = 160;
+    for (const fq of [55, 55.7]) {
+      const o = AC.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = fq;
+      o.connect(of2);
+      o.start(t);
+    }
+    const og = AC.createGain();
+    og.gain.value = .045;
+    of2.connect(og); og.connect(master);
+    const lfo = AC.createOscillator(), lg = AC.createGain(); // slow swell
+    lfo.frequency.value = .07;
+    lg.gain.value = .02;
+    lfo.connect(lg); lg.connect(ng.gain); lfo.start(t);
+    out(master, .3);
+    src.start(t);
+    DRONE = { master };
+  } catch (e) { DRONE = { master: null }; }
 }
 function playClaw() { // an enemy got too close: three fabric-rip rasps
   noiseBurst(.22, 'highpass', 1800, 1.2, .4, 0);
@@ -771,7 +953,7 @@ function pointCheck(x, y, pad) {
 
 // combo: kills landing within 1s of each other raise the splat pitch and
 // pop a x2/x3 callout — very satisfying
-let comboN = 0, comboT = 0;
+let comboN = 0, comboT = 0, nextBeat = 0;
 let onScoreChange = () => {}; // the optional shared room hooks in here
 
 function showCombo(n) {
@@ -826,6 +1008,19 @@ function update(dt, now) {
   updateEnemies(dt, now);
   updateCorpses(dt);
   if (fxAdd) { fxAdd.update(dt); fxSmoke.update(dt); }
+  if (!DRONE && AC) startDrone(); // the bed starts once audio exists
+  // heartbeat tracks the nearest thing in the dark (wall clock)
+  let nearest = 99;
+  for (const e of enemies) nearest = Math.min(nearest, -e.z);
+  if (nearest < 18 && now > nextBeat) {
+    const k = Math.pow(Math.max(0, Math.min(1, (18 - nearest) / 15)), 1.2);
+    nextBeat = now + 1400 - 950 * k;
+    const v = .22 + .3 * Math.max(0, Math.min(1, (10 - nearest) / 9));
+    tone(54, 36, .12, 'sine', v, 0, .1);
+    tone(46, 34, .1, 'sine', v * .7, .18, .1);
+  }
+  // the chain slips: same expiry the next kill would compute anyway
+  if (comboN >= 2 && now - comboT > 1000) { comboN = 0; playComboBreak(); }
   if (!nextStorm) nextStorm = now + rand(30000, 60000);
   if (now > nextStorm) {
     lightning();
@@ -2941,7 +3136,9 @@ window.__game = {
   // audio attestation (module scope hides the voices from page eval)
   testVoice(name) {
     const V = { playPop, playGrunt, playGroan, playWhisper, playScreech,
-                playRoar, playThunder, playHowl, playClaw, playCheer };
+                playRoar, playThunder, playHowl, playClaw, playCheer,
+                playShuffle, playLungeStinger, playFinisher, playComboTone,
+                playComboBreak, playLullStinger };
     if (!V[name]) return 'unknown';
     V[name](1);
     return 'ok';
