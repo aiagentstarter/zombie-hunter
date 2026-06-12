@@ -2121,7 +2121,7 @@ function connectBroker(url, code, name) {
       const pid = t.split('/').pop();
       if (pid === '_versus') { onVersusMsg(msg); return; }
       if (pid === '_rtc') { onRtcMsg(msg); return; }
-      if (pid === '_mode') { onModeMsg(msg); return; }
+      if (pid === '_mode') return; // classic devices publish this; 3D ignores it
       if (pid === room.id) return;
       if (!msg || !msg.length) { room.peers.delete(pid); renderBoard(); return; }
       try {
@@ -2846,8 +2846,11 @@ window.__game = {
   // drive the REAL simulation forward synchronously (headless RAF throttling
   // starves the loop mid-test; one call = one update step of `ms` game time)
   tick(ms) {
-    update((ms || 16) / 1000, performance.now());
+    const now = performance.now();
+    update((ms || 16) / 1000, now);
     projectEnemies();
+    versusTick(now);
+    updatePill(now);
   },
   // audio attestation (module scope hides the voices from page eval)
   testVoice(name) {
