@@ -379,18 +379,96 @@ function tone(f0, f1, dur, type, vol, delay) {
   o.connect(g).connect(AC.destination);
   o.start(t); o.stop(t + dur + .05);
 }
-function playPop(pitchUp) {
+// shared noise maker: a decaying noise burst through one filter — this is
+// the raw material for splats, rasps and thunder
+function noiseBurst(dur, type, freq, q, vol, delay) {
   if (!AC) return;
-  tone(rand(400, 520) * (pitchUp || 1), 90, .16, 'square', .3);
-  // a short burst of filtered noise = the juicy "splat"
-  const len = Math.floor(AC.sampleRate * .07);
+  const t0 = AC.currentTime + (delay || 0);
+  const len = Math.max(1, Math.floor(AC.sampleRate * dur));
   const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
   const src = AC.createBufferSource(); src.buffer = buf;
-  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = .9;
-  const g = AC.createGain(); g.gain.value = .45;
+  const f = AC.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = AC.createGain(); g.gain.value = vol;
   src.connect(f); f.connect(g); g.connect(AC.destination);
-  src.start();
+  src.start(t0);
+}
+
+function playPop(pitchUp) { // wet slash-splat (combos pitch it up)
+  if (!AC) return;
+  const p = pitchUp || 1;
+  tone(150 * p, 45, .16, 'square', .32);                 // squelchy body
+  tone(420 * p, 90, .07, 'sawtooth', .16);               // the blade's edge
+  noiseBurst(.12, 'lowpass', 900 * Math.sqrt(p), 2.5, .5, 0); // the wet part
+}
+function playGrunt() { // brute takes a hit
+  tone(130, 60, .18, 'square', .35);
+  noiseBurst(.1, 'lowpass', 500, 1, .25, 0);
+}
+function playGroan() { // low zombie moan wobbling downward
+  if (!AC) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(95, t);
+  o.frequency.linearRampToValueAtTime(70, t + .35);
+  o.frequency.linearRampToValueAtTime(82, t + .6);
+  o.frequency.linearRampToValueAtTime(55, t + 1);
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320; f.Q.value = 4;
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(.2, t + .12);
+  g.gain.exponentialRampToValueAtTime(.001, t + 1.05);
+  o.connect(f); f.connect(g); g.connect(AC.destination);
+  o.start(t); o.stop(t + 1.1);
+}
+function playWhisper() { // ghoul: a cold draft of air
+  noiseBurst(.5, 'highpass', 2400, .6, .05, 0);
+  tone(420, 200, .5, 'sine', .05);
+}
+function playScreech() { // bat: two falling chirps
+  tone(2600, 1100, .12, 'square', .12);
+  tone(2100, 900, .1, 'square', .1, .13);
+}
+function playRoar(big) { // brute: layered low growl that rears up then drops
+  if (!AC) return;
+  const t = AC.currentTime, dur = big ? .9 : .5, v = big ? .5 : .28;
+  for (const [f0, f1, type] of [[60, 38, 'sawtooth'], [92, 55, 'square']]) {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.linearRampToValueAtTime(f0 * 1.25, t + dur * .3);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + .06);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(g).connect(AC.destination);
+    o.start(t); o.stop(t + dur + .05);
+  }
+  noiseBurst(dur * .8, 'lowpass', 240, 1.5, v * .5, 0); // breathy rasp
+}
+function playThunder(soft) { // deep rolling rumble, two overlapping waves
+  if (!AC) return;
+  const v = soft ? .16 : .5;
+  noiseBurst(1.6, 'lowpass', 140, .8, v, 0);
+  noiseBurst(2.2, 'lowpass', 90, .8, v * .8, .25);
+  tone(70, 32, 1.2, 'sine', v * .7, .05); // the body-shaking bottom end
+}
+function playHowl() { // lonely wolf: rise, hold with vibrato, fall away
+  if (!AC) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(260, t);
+  o.frequency.linearRampToValueAtTime(540, t + .45);
+  for (let i = 0; i <= 12; i++) // vibrato on the held note
+    o.frequency.linearRampToValueAtTime(520 + (i % 2 ? 26 : -26), t + .5 + i * .06);
+  o.frequency.linearRampToValueAtTime(330, t + 1.55);
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(.32, t + .2);
+  g.gain.setValueAtTime(.32, t + 1.1);
+  g.gain.exponentialRampToValueAtTime(.001, t + 1.6);
+  o.connect(g).connect(AC.destination);
+  o.start(t); o.stop(t + 1.7);
 }
 function playCheer() {
   [523, 659, 784, 1047].forEach((fq, i) => tone(fq, fq, .25, 'triangle', .3, i * .09));
@@ -673,7 +751,11 @@ function spawn() {
     e.wA = rand(.06, .15) * H; e.wF = rand(1.8, 3);
   }
   enemies.push(e);
-  tone(120, 60, .25, 'sawtooth', .06); // low murmur as something arrives (M3 adds real voices)
+  // each kind announces itself (groans are throttled — spawns are constant)
+  if (kind.id === 'bat') playScreech();
+  else if (kind.id === 'brute') playRoar(false);
+  else if (kind.id === 'ghoul') playWhisper();
+  else if (Math.random() < .7) playGroan();
 }
 
 // ---------- slicing: blade trails + collision ----------
@@ -759,7 +841,7 @@ function slashEnemy(i, ang) {
     e.vy = Math.min(e.vy, 0) - 70;
     addShake(4);
     ichor(e.x, e.y, e.r * .5);
-    playPop(.5);                                    // low thud (M3 makes it a roar)
+    playGrunt();
     return;
   }
 
@@ -797,6 +879,7 @@ function slashEnemy(i, ang) {
   if (isBrute) {
     bannerShow('🧟 BRUTE DOWN! 🧟', 1500);
     ichor(e.x, e.y, e.r * 2.4);                     // huge goo burst
+    playRoar(true);                                 // death bellow
   }
   if (kills % 25 === 0 && !versus) celebrate();     // versus has its own big moments
   onScoreChange(e.kind.pts);
@@ -819,13 +902,16 @@ function ichor(x, y, scale) {
 
 const PRAISE = ['FEARLESS!', 'UNSTOPPABLE!', 'NIGHT STALKER!', 'MONSTER SLAYER!',
                 'LEGENDARY!', 'UNDEAD UNDONE!'];
-function celebrate() { // every 25 kills (M3 turns this into a full lightning storm)
+function celebrate() { // every 25 kills: a private lightning storm + wolf howl
   const b = $('banner');
   b.textContent = '⚡ ' + PRAISE[(kills / 25 - 1) % PRAISE.length] + ' ' + kills + ' ⚡';
   b.classList.add('show');
-  setTimeout(() => b.classList.remove('show'), 1600);
-  playCheer();
+  setTimeout(() => b.classList.remove('show'), 1900);
   confettiBurst();
+  lightning();
+  setTimeout(lightning, 420);
+  setTimeout(lightning, 880);
+  setTimeout(playHowl, 520);
 }
 function confettiBurst() { // goo-confetti: toxic greens with ember orange
   if (particles.length > 330) particles.splice(0, 110);
@@ -887,6 +973,12 @@ function update(dt, now) {
     else if (p.type === 'ring') p.r += 320 * dt;
     if (p.life <= 0) particles.splice(i, 1);
   }
+  // a distant storm rolls through every 30–60 seconds
+  if (!nextStorm) nextStorm = now + rand(30000, 60000);
+  if (now > nextStorm) {
+    lightning();
+    nextStorm = now + rand(30000, 60000);
+  }
   // drifting embers live in the scenery, recycled forever
   if (scene) for (const em of scene.embers) {
     em.y -= em.sp * dt;
@@ -910,7 +1002,17 @@ function drawEmoji(e, size) {
    windows, drifting fog and clouds, rising embers. */
 let scene = null;
 let remoteIsBig = false; // set by layoutVideos: partner video is fullscreen
-let flash = 0;           // 0..1 lightning brightness this frame (M3 drives it)
+let flash = 0;           // 0..1 lightning brightness, computed from flashAt
+let flashAt = -9e9, hordeUntil = 0, nextStorm = 0;
+
+// one strike: double-blink flash, thunder right behind it, and the distant
+// horde stands revealed in the skyline for a single second
+function lightning() {
+  flashAt = performance.now();
+  hordeUntil = flashAt + 1000;
+  addShake(3);
+  playThunder(silly); // silly mode keeps its storms gentle
+}
 
 function buildScene() {
   const mk = (w, h) => { const c = document.createElement('canvas');
@@ -1011,6 +1113,10 @@ function buildScene() {
 
 function drawScene(now) {
   const s = scene;
+  // lightning envelope: bright pop, dip, second pop, then a ~.45s fade
+  const fdt = now - flashAt;
+  flash = fdt < 70 ? .95 : fdt < 140 ? .35 : fdt < 240 ? .8
+        : Math.max(0, .8 - (fdt - 240) / 450 * .8);
   ctx.drawImage(s.vg, 0, 0, W, H); // tint + vignette, also over the camera feed
   if (remoteIsBig) return;         // partner's video is fullscreen — keep them visible
   const mw = s.moon.width / 2;
@@ -1023,8 +1129,8 @@ function drawScene(now) {
   ctx.globalAlpha = 1;
   ctx.drawImage(s.far, 0, H - s.skyH - H * .04);
   ctx.drawImage(s.near, 0, H - s.skyH);
-  if (flash > .25) {               // zombie horde appears only in the lightning
-    ctx.globalAlpha = Math.min(1, (flash - .25) * 2);
+  if (now < hordeUntil && !silly) { // the horde appears for 1s per strike
+    ctx.globalAlpha = Math.min(1, (hordeUntil - now) / 300) * .95;
     ctx.drawImage(s.horde, 0, H - s.skyH);
     ctx.globalAlpha = 1;
   }
@@ -1448,8 +1554,21 @@ function updatePill(now) {
 }
 
 // ---------- start ----------
+// slow heartbeat under the title screen: it can only begin once the player
+// touches the page (autoplay rules) and stops the moment the hunt starts
+let heartT = 0;
+function startHeartbeat() {
+  if (heartT || running) return;
+  const thump = () => { tone(60, 38, .14, 'sine', .5); tone(52, 36, .12, 'sine', .34, .22); };
+  thump();
+  heartT = setInterval(thump, 1150);
+}
+function stopHeartbeat() { clearInterval(heartT); heartT = 0; }
+$('start').addEventListener('pointerdown', () => { initAudio(); startHeartbeat(); });
+
 function startGame() {
   if (running) return;
+  stopHeartbeat();
   $('start').classList.add('hidden');
   $('gear').style.display = 'block';
   running = true;
@@ -2279,6 +2398,10 @@ window.__game = {
   get micMuted() { return micMuted; },
   setVideoTiming(ms) { VIDEO_FAIL_MS = ms; },
   videoToScreen,
+  triggerLightning() { lightning(); },
+  setStormIn(ms) { nextStorm = performance.now() + ms; },
+  get flashLevel() { return flash; },
+  get nextStormIn() { return nextStorm ? nextStorm - performance.now() : null; },
   spawnAt(x, y) { spawn(); const e = enemies[enemies.length - 1]; e.x = x; e.y = y; e.pin = true; },
   // park a SPECIFIC kind at x,y (tests aim at each enemy type, esp. the brute)
   spawnType(id, x, y) {
