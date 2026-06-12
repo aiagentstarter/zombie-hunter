@@ -21,6 +21,16 @@
           --night:#04130a; }
   body { background:linear-gradient(160deg,#0a2114,#04130a,#020705);
       background-size:300% 300%; animation:bgshift 24s ease infinite; }
+  /* Silly mode: bright purple & orange Halloween party (toggle adds .silly) */
+  body.silly { --toxic:#ffa92e; --toxic-dim:#ff8c1a; --bone:#fff1d6; --ember:#c75cff;
+      --night:#241040;
+      background:linear-gradient(160deg,#3a1f5e,#241040,#170a2e); }
+  body.silly #score { color:#ffd9a0;
+      text-shadow:0 0 18px rgba(255,170,60,.65), 0 4px 14px rgba(0,0,0,.8); }
+  body.silly .bigbtn { color:#3a1a05; background:linear-gradient(135deg,#ffc14d,#ff8c1a);
+      box-shadow:0 0 30px rgba(255,170,60,.6), 0 10px 26px rgba(0,0,0,.5); }
+  body.silly .softbtn { color:#ffe9c9; border-color:rgba(255,200,120,.5); }
+  body.silly #cam { filter:brightness(.75) saturate(.8); }
   @keyframes bgshift { 0%{background-position:0% 0%} 50%{background-position:100% 100%} 100%{background-position:0% 0%} }
 
   /* mirrored selfie camera behind the game canvas (hidden until camera starts) */
@@ -167,6 +177,12 @@
       background:linear-gradient(rgba(3,10,5,.45), rgba(2,6,3,.72)),
                  url('poster.png') center/cover no-repeat,
                  linear-gradient(170deg,#0a1f10,#04130a 60%,#020806); }
+  /* Silly mode: the poster makes way for a friendly cartoon canvas title */
+  body.silly #start { background:linear-gradient(170deg,#3a1f5e,#241040 60%,#170a2e); }
+  #titleArt { position:absolute; inset:0; width:100%; height:100%; display:none; }
+  body.silly #titleArt { display:block; }
+  #start > :not(#titleArt) { position:relative; } /* UI paints above the art canvas */
+  body.silly #start h1 { animation:none; } /* no scary flicker for the kids */
   #start h1 { font-family:'Creepster', cursive; font-weight:400; color:var(--toxic);
       font-size:min(17vw, 96px); letter-spacing:3px; line-height:1;
       text-shadow:0 0 30px rgba(122,255,86,.6), 0 0 70px rgba(122,255,86,.35),
@@ -211,6 +227,7 @@
 <div id="panel" class="hidden">
   <h3>🧟 Zombie speed</h3>
   <label>🐢 <input id="speed" type="range" min="0.5" max="1.6" step="0.05"> 🐇</label>
+  <label>🎉 Silly mode <input id="sillyChk" type="checkbox" style="width:30px;height:30px"></label>
   <div id="audState"></div>
   <div id="roomSec">
     <h3>🪦 Hunt together</h3>
@@ -234,11 +251,13 @@
 <div id="tbar"></div>
 
 <div id="start">
+  <canvas id="titleArt"></canvas>
   <h1>Zombie Hunter</h1>
   <p class="subtitle">— Survive the night —</p>
   <p>Wave your hand (or swipe a finger) to slash the horde. No lives, no game over — the night is yours.</p>
   <button id="btnCam" class="bigbtn">🌙 Start</button>
   <button id="btnTouch" class="softbtn">👆 Hunt without camera</button>
+  <button id="sillyStart" class="softbtn">👻 Silly mode: OFF</button>
   <p class="tiny">Start uses the camera so you can slash by waving — video never leaves your device.</p>
 </div>
 
@@ -470,6 +489,23 @@ function playHowl() { // lonely wolf: rise, hold with vibrato, fall away
   o.connect(g).connect(AC.destination);
   o.start(t); o.stop(t + 1.7);
 }
+function playGiggle() { // Silly mode: quick rising hee-hee-hee
+  [0, .09, .18].forEach((d, i) => tone(620 + i * 130, 900 + i * 130, .07, 'sine', .2, d));
+}
+function playBoing(big) { // Silly mode: cartoon spring
+  if (!AC) return;
+  const t = AC.currentTime, dur = big ? .5 : .3;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(big ? 90 : 160, t);
+  o.frequency.exponentialRampToValueAtTime(big ? 460 : 720, t + dur * .4);
+  o.frequency.exponentialRampToValueAtTime(big ? 130 : 240, t + dur);
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(big ? .38 : .24, t + .05);
+  g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  o.connect(g).connect(AC.destination);
+  o.start(t); o.stop(t + dur + .05);
+}
 function playCheer() {
   [523, 659, 784, 1047].forEach((fq, i) => tone(fq, fq, .25, 'triangle', .3, i * .09));
   tone(1568, 2093, .35, 'sine', .2, .42);
@@ -512,6 +548,18 @@ function eyeGlow(g, x, y, r) {
   g.fillStyle = '#0a140c';
   g.beginPath(); g.arc(x, y + r * .15, r * .45, 0, 7); g.fill();
 }
+// Silly mode faces: big white googly eyes and an open derpy grin
+function cuteEye(g, x, y, r) {
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, r * 1.8, 0, 7); g.fill();
+  g.fillStyle = '#26143a'; g.beginPath(); g.arc(x + r * .4, y + r * .35, r * .85, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(x + r * .15, y + r * .05, r * .32, 0, 7); g.fill();
+}
+function cuteSmile(g, x, y, w) {
+  g.fillStyle = '#5a2438';
+  g.beginPath(); g.arc(x, y, w, .15, Math.PI - .15); g.closePath(); g.fill();
+  g.fillStyle = '#ff7e9e'; // tongue
+  g.beginPath(); g.ellipse(x, y + w * .55, w * .45, w * .28, 0, 0, 7); g.fill();
+}
 function tri(g, x1, y1, x2, y2, x3, y3) {
   g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.lineTo(x3, y3);
   g.closePath(); g.fill();
@@ -521,7 +569,7 @@ function blob(g, x, y, rx, ry) {
 }
 
 // shambling zombie — arms up, jagged hem like it's tearing out of the dirt
-function paintShambler(g, P) {
+function paintShambler(g, P, cute) {
   g.lineCap = 'round';
   g.strokeStyle = P.limb; g.lineWidth = 17;                    // raised crooked arms
   g.beginPath(); g.moveTo(82, 138); g.lineTo(54, 96); g.lineTo(44, 66); g.stroke();
@@ -543,11 +591,16 @@ function paintShambler(g, P) {
   tri(g, 100, 150, 128, 158, 108, 182); blob(g, 148, 192, 12, 12);
   g.fillStyle = P.body2;                                       // head
   blob(g, 120, 84, 40, 40);
+  g.strokeStyle = P.rim; g.lineWidth = 5;                      // moonlit rim
+  g.beginPath(); g.arc(120, 84, 37, -.7, .8); g.stroke();
+  if (cute) {
+    cuteSmile(g, 120, 100, 19);
+    cuteEye(g, 104, 80, 6.5); cuteEye(g, 137, 78, 6.5);
+    return;
+  }
   g.strokeStyle = P.dark; g.lineWidth = 4;                     // skull scar
   g.beginPath(); g.moveTo(94, 58); g.lineTo(112, 66); g.stroke();
   g.beginPath(); g.moveTo(100, 56); g.lineTo(102, 68); g.stroke();
-  g.strokeStyle = P.rim; g.lineWidth = 5;                      // moonlit rim
-  g.beginPath(); g.arc(120, 84, 37, -.7, .8); g.stroke();
   g.strokeStyle = P.dark; g.lineWidth = 5;                     // stitched mouth
   g.beginPath(); g.moveTo(102, 108); g.quadraticCurveTo(120, 116, 140, 106); g.stroke();
   g.lineWidth = 3;
@@ -558,7 +611,7 @@ function paintShambler(g, P) {
 }
 
 // crawler — drags itself sideways, one arm reaching, legs trailing rags
-function paintCrawler(g, P) {
+function paintCrawler(g, P, cute) {
   g.lineCap = 'round';
   g.strokeStyle = P.limb;                                      // trailing legs
   g.lineWidth = 13; g.beginPath(); g.moveTo(186, 176); g.lineTo(224, 196); g.stroke();
@@ -576,18 +629,23 @@ function paintCrawler(g, P) {
   }
   g.fillStyle = P.body2;                                       // head jutting forward
   blob(g, 62, 148, 34, 34);
+  g.strokeStyle = P.rim; g.lineWidth = 4;                      // moonlit back
+  g.beginPath(); g.moveTo(100, 144); g.quadraticCurveTo(142, 134, 188, 148); g.stroke();
+  if (cute) {
+    cuteSmile(g, 58, 162, 14);
+    cuteEye(g, 50, 140, 5.5); cuteEye(g, 70, 138, 5.5);
+    return;
+  }
   g.fillStyle = P.dark;                                        // hanging open jaw
   g.beginPath(); g.moveTo(34, 156); g.quadraticCurveTo(50, 180, 78, 170);
   g.lineTo(74, 154); g.closePath(); g.fill();
   g.fillStyle = P.teeth;
   tri(g, 44, 160, 52, 160, 48, 168); tri(g, 58, 162, 66, 162, 62, 170);
-  g.strokeStyle = P.rim; g.lineWidth = 4;                      // moonlit back
-  g.beginPath(); g.moveTo(100, 144); g.quadraticCurveTo(142, 134, 188, 148); g.stroke();
   eyeGlow(g, 50, 140, 5.5); eyeGlow(g, 70, 138, 5.5);
 }
 
 // ghoul — a wraith that floats up, hem fading into wisps
-function paintGhoul(g, P) {
+function paintGhoul(g, P, cute) {
   g.fillStyle = P.ghost;                                       // flowing sheet
   g.beginPath(); g.moveTo(78, 196);
   g.quadraticCurveTo(64, 120, 86, 82); g.quadraticCurveTo(100, 52, 120, 52);
@@ -605,17 +663,22 @@ function paintGhoul(g, P) {
   g.globalCompositeOperation = 'destination-out';
   g.fillStyle = fade; g.fillRect(30, 142, 180, 76);
   g.globalCompositeOperation = 'source-over';
+  g.strokeStyle = P.rim; g.lineWidth = 4;
+  g.beginPath(); g.arc(120, 88, 36, -2.6, -.5); g.stroke(); // hugs the head dome
+  if (cute) {
+    cuteSmile(g, 120, 104, 13);
+    cuteEye(g, 108, 84, 6); cuteEye(g, 132, 84, 6);
+    return;
+  }
   g.fillStyle = P.dark;                                        // hollow face
   blob(g, 120, 92, 27, 32);
   g.fillStyle = '#040a05';                                     // wailing mouth
   blob(g, 120, 112, 9, 13);
-  g.strokeStyle = P.rim; g.lineWidth = 4;
-  g.beginPath(); g.arc(120, 88, 36, -2.6, -.5); g.stroke(); // hugs the head dome
   eyeGlow(g, 108, 84, 6); eyeGlow(g, 132, 84, 6);
 }
 
 // bat — webbed wings, big ears, tiny fangs
-function paintBat(g, P) {
+function paintBat(g, P, cute) {
   g.fillStyle = P.wing;                                        // scalloped wings
   g.beginPath(); g.moveTo(112, 118); g.quadraticCurveTo(70, 74, 18, 72);
   g.quadraticCurveTo(34, 96, 28, 118); g.quadraticCurveTo(52, 112, 58, 132);
@@ -633,13 +696,18 @@ function paintBat(g, P) {
   g.fillStyle = P.body; blob(g, 120, 134, 22, 30);             // body
   g.fillStyle = P.body2; blob(g, 120, 102, 23, 23);            // head
   tri(g, 104, 92, 98, 58, 118, 84); tri(g, 136, 92, 142, 58, 122, 84); // ears
+  if (cute) {
+    cuteSmile(g, 120, 112, 9);
+    cuteEye(g, 111, 100, 5.5); cuteEye(g, 129, 100, 5.5);
+    return;
+  }
   g.fillStyle = P.teeth;                                       // fangs
   tri(g, 113, 116, 118, 116, 115, 126); tri(g, 122, 116, 127, 116, 124, 126);
   eyeGlow(g, 111, 100, 5.5); eyeGlow(g, 129, 100, 5.5);
 }
 
 // spiked brute — the rare 3-hit boss, toxic cracks glowing across its chest
-function paintBrute(g, P) {
+function paintBrute(g, P, cute) {
   g.lineCap = 'round';
   g.fillStyle = '#1a3320';                                     // back spikes
   tri(g, 178, 100, 122, 16, 118, 100);
@@ -666,6 +734,13 @@ function paintBrute(g, P) {
     g.beginPath(); g.moveTo(150, 204); g.lineTo(158, 216); g.stroke();
   }
   g.fillStyle = P.body2; blob(g, 150, 112, 30, 30);            // sunken head
+  g.fillStyle = P.limb;                                        // leg stubs
+  g.fillRect(116, 238, 28, 34); g.fillRect(156, 238, 28, 34);
+  if (cute) {
+    cuteSmile(g, 150, 122, 17);
+    cuteEye(g, 138, 102, 6.5); cuteEye(g, 162, 102, 6.5);
+    return;
+  }
   g.fillStyle = P.limb;                                        // heavy brow
   g.beginPath(); g.moveTo(122, 96); g.lineTo(178, 96); g.lineTo(174, 108);
   g.lineTo(126, 108); g.closePath(); g.fill();
@@ -674,10 +749,15 @@ function paintBrute(g, P) {
   g.fillStyle = P.teeth;                                       // teeth point UP
   tri(g, 126, 122, 134, 122, 130, 110); tri(g, 142, 122, 150, 122, 146, 108);
   tri(g, 158, 122, 166, 122, 162, 110);
-  g.fillStyle = P.limb;                                        // leg stubs
-  g.fillRect(116, 238, 28, 34); g.fillRect(156, 238, 28, 34);
   eyeGlow(g, 138, 104, 6.5); eyeGlow(g, 162, 104, 6.5);
 }
+
+// Silly mode bodies: per-kind purple/orange party colors over a shared base
+const INK_SILLY = { limb:'#6a35a8', dark:'#3c1c66', rim:'rgba(255,225,160,.55)',
+                    teeth:'#fff', accent:'#ffd23f' };
+const SILLY_TINT = { shambler:['#9a5cd6','#b06fe8'], crawler:['#ff9430','#ffae5c'],
+                     ghoul:['#d9b3ff','#e8ccff'], bat:['#8448c8','#a55fe0'],
+                     brute:['#ff8c1a','#ffa948'] };
 
 // build (and cache) the sprite for a kind in the current mode; sprites are
 // painted at 2x and downscaled when stamped, so they stay crisp on retina
@@ -690,7 +770,12 @@ function getSprite(kind) {
   c.width = c.height = kind.px * 2;
   const g = c.getContext('2d');
   g.scale(2, 2);
-  kind.paint(g, INK);
+  let P = INK;
+  if (silly) {
+    const t = SILLY_TINT[kind.id];
+    P = Object.assign({}, INK_SILLY, { body: t[0], body2: t[1], ghost: t[0], wing: t[0] });
+  }
+  kind.paint(g, P, silly);
   spriteCache[mode][kind.id] = c;
   return c;
 }
@@ -751,11 +836,12 @@ function spawn() {
     e.wA = rand(.06, .15) * H; e.wF = rand(1.8, 3);
   }
   enemies.push(e);
-  // each kind announces itself (groans are throttled — spawns are constant)
-  if (kind.id === 'bat') playScreech();
-  else if (kind.id === 'brute') playRoar(false);
-  else if (kind.id === 'ghoul') playWhisper();
-  else if (Math.random() < .7) playGroan();
+  // each kind announces itself (groans are throttled — spawns are constant);
+  // in Silly mode everything giggles and boings instead
+  if (kind.id === 'bat') silly ? playBoing() : playScreech();
+  else if (kind.id === 'brute') silly ? playBoing(true) : playRoar(false);
+  else if (kind.id === 'ghoul') silly ? playGiggle() : playWhisper();
+  else if (Math.random() < .7) silly ? playGiggle() : playGroan();
 }
 
 // ---------- slicing: blade trails + collision ----------
@@ -841,7 +927,7 @@ function slashEnemy(i, ang) {
     e.vy = Math.min(e.vy, 0) - 70;
     addShake(4);
     ichor(e.x, e.y, e.r * .5);
-    playGrunt();
+    silly ? playBoing() : playGrunt();
     return;
   }
 
@@ -879,25 +965,32 @@ function slashEnemy(i, ang) {
   if (isBrute) {
     bannerShow('🧟 BRUTE DOWN! 🧟', 1500);
     ichor(e.x, e.y, e.r * 2.4);                     // huge goo burst
-    playRoar(true);                                 // death bellow
+    silly ? playBoing(true) : playRoar(true);       // death bellow / mega-boing
   }
   if (kills % 25 === 0 && !versus) celebrate();     // versus has its own big moments
   onScoreChange(e.kind.pts);
 }
 
 // glowing green ichor — never red. scale ~60 = a normal kill.
+// Silly mode splatters confetti goo instead.
 const ICHOR = ['#7dff5e', '#4ddb3a', '#b6ff7a', '#2fae22'];
+const ICHOR_SILLY = ['#ff9430', '#c75cff', '#ffd23f', '#ff5fa2', '#5fd4ff'];
 function ichor(x, y, scale) {
   if (particles.length > 380) particles.splice(0, 60); // hard cap, keeps old iPads smooth
+  const colors = silly ? ICHOR_SILLY : ICHOR;
   const s = Math.min(scale / 60, 2);
-  particles.push({ type:'ring', x, y, r: 12, color: ICHOR[0], life: .45, max: .45 });
+  particles.push({ type:'ring', x, y, r: 12, color: colors[0], life: .45, max: .45 });
   const n = Math.round(16 * s + 4);
   for (let i = 0; i < n; i++) {
     const a = rand(0, Math.PI * 2), sp = rand(120, 420) * Math.min(s, 1.6);
     particles.push({ type:'drop', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
                      r: rand(4, 11) * Math.min(s, 1.5),
-                     color: ICHOR[(Math.random() * ICHOR.length) | 0], life: rand(.5, .9) });
+                     color: colors[(Math.random() * colors.length) | 0], life: rand(.5, .9) });
   }
+  if (silly) for (let i = 0; i < Math.round(6 * s); i++) // goo comes with confetti
+    particles.push({ type:'conf', x, y, vx: rand(-140, 140), vy: rand(-220, -60),
+                     r: rand(4, 7), hue: rand(0, 360), rot: rand(0, 6.3),
+                     spin: rand(-6, 6), life: rand(.8, 1.4) });
 }
 
 const PRAISE = ['FEARLESS!', 'UNSTOPPABLE!', 'NIGHT STALKER!', 'MONSTER SLAYER!',
@@ -1018,30 +1111,54 @@ function buildScene() {
   const mk = (w, h) => { const c = document.createElement('canvas');
     c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
 
-  // green tint + vignette in one full-screen layer
+  // night palette: toxic green apocalypse vs Silly purple/orange party
+  const C = silly ? {
+    tint:'rgba(40,16,60,.26)', vig0:'rgba(16,5,28,0)', vig1:'rgba(16,5,28,.62)',
+    halo0:'rgba(255,235,190,.5)', halo1:'rgba(255,215,150,.14)', halo2:'rgba(255,215,150,0)',
+    moon:'#fff3d8', crater:'rgba(238,210,170,.8)',
+    far:'#3a1f5e', near:'#1c0f33', winA:'#ffd23f', winB:'#c75cff',
+    fog0:'rgba(200,120,255,.28)', fog1:'rgba(200,120,255,0)',
+    cloud0:'rgba(28,12,48,.85)', cloud1:'rgba(28,12,48,0)',
+    emA:'#ffd23f', emB:'#c75cff'
+  } : {
+    tint:'rgba(7,22,11,.30)', vig0:'rgba(1,6,3,0)', vig1:'rgba(1,6,3,.72)',
+    halo0:'rgba(205,255,205,.5)', halo1:'rgba(160,255,170,.16)', halo2:'rgba(160,255,170,0)',
+    moon:'#dceed2', crater:'rgba(178,200,168,.8)',
+    far:'#0b2113', near:'#040806', winA:'#ff9a3c', winB:'#9dff57',
+    fog0:'rgba(110,230,120,.30)', fog1:'rgba(110,230,120,0)',
+    cloud0:'rgba(4,10,6,.85)', cloud1:'rgba(4,10,6,0)',
+    emA:'#ffb066', emB:'#9dff6e'
+  };
+
+  // tint + vignette in one full-screen layer
   const vg = mk(W, H), vgc = vg.getContext('2d');
-  vgc.fillStyle = 'rgba(7,22,11,.30)';
+  vgc.fillStyle = C.tint;
   vgc.fillRect(0, 0, W, H);
   const rad = vgc.createRadialGradient(W / 2, H * .45, Math.min(W, H) * .32,
                                        W / 2, H * .55, Math.max(W, H) * .78);
-  rad.addColorStop(0, 'rgba(1,6,3,0)');
-  rad.addColorStop(1, 'rgba(1,6,3,.72)');
+  rad.addColorStop(0, C.vig0);
+  rad.addColorStop(1, C.vig1);
   vgc.fillStyle = rad; vgc.fillRect(0, 0, W, H);
 
-  // pale full moon with a sickly halo
+  // pale full moon with a halo
   const mr = Math.min(W, H) * .11, mpx = mr * 3;
   const moon = mk(mpx * 2, mpx * 2), mc = moon.getContext('2d');
   const halo = mc.createRadialGradient(mpx, mpx, mr * .6, mpx, mpx, mpx);
-  halo.addColorStop(0, 'rgba(205,255,205,.5)');
-  halo.addColorStop(.35, 'rgba(160,255,170,.16)');
-  halo.addColorStop(1, 'rgba(160,255,170,0)');
+  halo.addColorStop(0, C.halo0);
+  halo.addColorStop(.35, C.halo1);
+  halo.addColorStop(1, C.halo2);
   mc.fillStyle = halo; mc.fillRect(0, 0, mpx * 2, mpx * 2);
-  mc.fillStyle = '#dceed2';
+  mc.fillStyle = C.moon;
   mc.beginPath(); mc.arc(mpx, mpx, mr, 0, 7); mc.fill();
-  mc.fillStyle = 'rgba(178,200,168,.8)';
+  mc.fillStyle = C.crater;
   for (let i = 0; i < 7; i++) { // craters
     const a = rand(0, 6.28), d = rand(0, mr * .68), cr = rand(mr * .06, mr * .2);
     mc.beginPath(); mc.arc(mpx + Math.cos(a) * d, mpx + Math.sin(a) * d, cr, 0, 7); mc.fill();
+  }
+  if (silly) { // the Silly moon is a friend
+    cuteEye(mc, mpx - mr * .3, mpx - mr * .15, mr * .1);
+    cuteEye(mc, mpx + mr * .3, mpx - mr * .15, mr * .1);
+    cuteSmile(mc, mpx, mpx + mr * .3, mr * .3);
   }
 
   // two ruined skylines: far = dim green, near = almost black w/ lit windows
@@ -1069,8 +1186,8 @@ function buildScene() {
       x += bw + rand(4, W * .02);
     }
   };
-  drawTown(far, '#0b2113', .35, .95, false);
-  drawTown(nearC, '#040806', .2, .7, true);
+  drawTown(far, C.far, .35, .95, false);
+  drawTown(nearC, C.near, .2, .7, true);
 
   // a distant horde, revealed only while lightning flashes (M3)
   const horde = mk(W, skyH), hc = horde.getContext('2d');
@@ -1090,14 +1207,14 @@ function buildScene() {
   // one soft fog puff, stamped a few times while drifting
   const fog = mk(420, 180), fc = fog.getContext('2d');
   const fr = fc.createRadialGradient(210, 120, 10, 210, 100, 200);
-  fr.addColorStop(0, 'rgba(110,230,120,.30)');
-  fr.addColorStop(1, 'rgba(110,230,120,0)');
+  fr.addColorStop(0, C.fog0);
+  fr.addColorStop(1, C.fog1);
   fc.fillStyle = fr; fc.fillRect(0, 0, 420, 180);
 
   // one cloud streak for the moon band
   const cloud = mk(360, 90), cc = cloud.getContext('2d');
   const cg = cc.createRadialGradient(180, 45, 8, 180, 45, 170);
-  cg.addColorStop(0, 'rgba(4,10,6,.85)'); cg.addColorStop(1, 'rgba(4,10,6,0)');
+  cg.addColorStop(0, C.cloud0); cg.addColorStop(1, C.cloud1);
   cc.fillStyle = cg;
   cc.save(); cc.translate(180, 45); cc.scale(1, .3); cc.translate(-180, -45);
   cc.beginPath(); cc.arc(180, 45, 170, 0, 7); cc.fill(); cc.restore();
@@ -1108,7 +1225,8 @@ function buildScene() {
                   ph: rand(0, 6.28), orange: Math.random() < .55 });
 
   scene = { w: W, h: H, vg, moon, far, near: nearC, horde, skyH, windows,
-            fog, cloud, embers, mx: W * .68, my: H * .18 };
+            fog, cloud, embers, mx: W * .68, my: H * .18,
+            winA: C.winA, winB: C.winB, emA: C.emA, emB: C.emB };
 }
 
 function drawScene(now) {
@@ -1138,7 +1256,7 @@ function drawScene(now) {
     const f = Math.sin(now / 640 + w.ph) * .5 + .5;
     if (f < .22) continue;         // blacked out right now
     ctx.globalAlpha = .35 + .6 * f;
-    ctx.fillStyle = w.orange ? '#ff9a3c' : '#9dff57';
+    ctx.fillStyle = w.orange ? s.winA : s.winB;
     ctx.fillRect(w.x, H - s.skyH + w.y, w.w, w.h);
   }
   ctx.globalAlpha = 1;
@@ -1151,7 +1269,7 @@ function drawScene(now) {
   ctx.globalAlpha = 1;
   for (const em of s.embers) {     // embers floating up
     ctx.globalAlpha = .35 + .35 * Math.sin(now / 300 + em.ph);
-    ctx.fillStyle = em.orange ? '#ffb066' : '#9dff6e';
+    ctx.fillStyle = em.orange ? s.emA : s.emB;
     ctx.beginPath(); ctx.arc(em.x, em.y, em.r, 0, 7); ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -1334,6 +1452,94 @@ function showChip(msg, ms) {
   clearTimeout(chipTimer);
   chipTimer = setTimeout(() => c.style.opacity = 0, ms || 3000);
 }
+
+/* =====================================================================
+   🎉 SILLY MODE (Milestone 4) — a bright purple/orange Halloween party
+   for the littlest hunters. Same five enemies redrawn goofy, ichor
+   becomes confetti goo, groans become giggles and boings, thunder goes
+   soft, the lightning horde stays hidden, and the title screen swaps to
+   a friendly cartoon canvas. The toggle also syncs through the room
+   (one retained _mode message, newest change wins) so both Versus
+   players always see the same version.
+   ===================================================================== */
+let lastModeStamp = 0;
+
+function setSilly(on, silent) {
+  on = !!on;
+  if (silly === on) return;
+  silly = on;
+  document.body.classList.toggle('silly', on);
+  try { localStorage.setItem('zh_silly', on ? '1' : '0'); } catch (e) {}
+  for (const e of enemies) e.spr = getSprite(e.kind); // live enemies swap costume
+  scene = null;                                       // scenery repaints next frame
+  syncSillyUI();
+  drawTitleArt();
+  if (!silent) publishMode();                         // tell the room (no-op solo)
+}
+
+function syncSillyUI() {
+  $('sillyChk').checked = silly;
+  $('sillyStart').textContent = silly ? '🎉 Silly mode: ON' : '👻 Silly mode: OFF';
+  document.querySelector('#start .subtitle').textContent =
+    silly ? '— Party with the silly zombies! —' : '— Survive the night —';
+}
+
+// the friendly cartoon title art (visible only with body.silly on #start)
+function drawTitleArt() {
+  if (!silly) return;
+  const cv = $('titleArt');
+  cv.width = innerWidth; cv.height = innerHeight;
+  const g = cv.getContext('2d'), w = cv.width, h = cv.height;
+  const sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#4a2a78'); sky.addColorStop(.6, '#2c1452'); sky.addColorStop(1, '#1a0b36');
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 60; i++) {                      // confetti sprinkles
+    g.fillStyle = ICHOR_SILLY[i % ICHOR_SILLY.length];
+    g.save(); g.translate(Math.random() * w, Math.random() * h);
+    g.rotate(Math.random() * 6.3); g.globalAlpha = .6;
+    g.fillRect(-4, -2, 8, 4); g.restore();
+  }
+  g.globalAlpha = 1;
+  const mx = w * .74, my = h * .14, mr = Math.min(w, h) * .1; // smiling moon
+  g.fillStyle = '#fff3d8'; g.beginPath(); g.arc(mx, my, mr, 0, 7); g.fill();
+  cuteEye(g, mx - mr * .3, my - mr * .15, mr * .1);
+  cuteEye(g, mx + mr * .3, my - mr * .15, mr * .1);
+  cuteSmile(g, mx, my + mr * .3, mr * .3);
+  ['shambler', 'ghoul', 'bat', 'brute', 'crawler'].forEach((id, i) => {
+    const kind = KINDS.find(k => k.id === id);        // goofy guests at the bottom
+    const s = Math.min(w, h) * .2;
+    g.drawImage(getSprite(kind), w * (.12 + .19 * i) - s / 2,
+                h * .88 - (i % 2 ? s * .15 : 0) - s / 2, s, s);
+  });
+}
+// repaint on the NEXT frame so a mid-resize layout can't leave a blank canvas
+addEventListener('resize', () => { if (silly) requestAnimationFrame(drawTitleArt); });
+
+$('sillyStart').addEventListener('click', () => { initAudio(); setSilly(!silly); });
+$('sillyChk').addEventListener('change', e => { initAudio(); setSilly(e.target.checked); });
+
+// room sync: a tiny retained JSON on the room's _mode topic. Whoever
+// toggled most recently wins, on every device, even ones joining later.
+function publishMode() {
+  lastModeStamp = Date.now();
+  if (!room) return;
+  try {
+    room.client.publish(room.topic + '_mode',
+      JSON.stringify({ v: 1, by: myId, t: lastModeStamp, sm: silly ? 1 : 0 }), { retain: true });
+  } catch (e) {}
+}
+function onModeMsg(msg) {
+  if (!msg || !msg.length) return;
+  let d; try { d = JSON.parse(msg.toString()); } catch (e) { return; }
+  if (!d || d.v !== 1 || d.by === myId) return;
+  if ((d.t || 0) <= lastModeStamp) return;            // I changed it more recently
+  lastModeStamp = d.t;
+  setSilly(!!d.sm, true);
+  showChip(d.sm ? '🎉 Silly mode is ON for everyone!' : '🌙 Back to spooky — good luck!', 3500);
+}
+
+// restore last visit's choice (silent: booting never broadcasts)
+try { setSilly(localStorage.getItem('zh_silly') === '1', true); } catch (e) {}
 
 /* =====================================================================
    📷 CAMERA + ✋ HAND TRACKING (Milestone 2)
@@ -1690,6 +1896,7 @@ function connectBroker(url, code, name) {
       const pid = t.split('/').pop();
       if (pid === '_versus') { onVersusMsg(msg); return; }
       if (pid === '_rtc') { onRtcMsg(msg); return; }
+      if (pid === '_mode') { onModeMsg(msg); return; }
       if (pid === room.id) return;
       if (!msg || !msg.length) { room.peers.delete(pid); renderBoard(); return; }
       try {
@@ -2367,6 +2574,8 @@ window.__game = {
   get enemies() { return enemies; },
   get fruits() { return enemies; }, // the original harness name — same list
   get running() { return running; },
+  get silly() { return silly; },
+  setSilly,
   get camOn() { return camOn; },
   get handsStatus() { return handsStatus; },
   get audio() { return { state: AC ? AC.state : null,
