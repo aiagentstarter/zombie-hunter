@@ -97,11 +97,36 @@ SEES YOUR HAND*.
 | Hands feel laggy | The game lowers its tracking rate, rebuilds the tracker in a compatible mode, and only then switches to touch — the pill always shows where it landed. |
 | Choppy on an old phone | The game sheds quality on its own: bloom → grain → particles → resolution → enemy cap. Tracking is never reduced. |
 
-## Hunting together (rooms, Versus, live video)
+## Play with your kid (rooms, Versus, live video)
 
-Tap **MENU → HUNT TOGETHER**: both devices enter a nickname and the same room code
-(spooky combos like `GRAVEYARD-BAT-13`), tap **JOIN ROOM**. Names and live scores
-appear top-left on both screens.
+Two devices, two hunters, both faces on screen — here's the whole flow:
+
+1. On your device: tap **MENU → PLAY WITH SOMEONE**. A big spooky code appears
+   (like `MOON-TOAD-72`) with a link under it. Tap **COPY LINK** and text it.
+2. On the other device: **just open the link.** It joins automatically — no
+   typing, no menus. The title screen says *WAITING FOR PLAYER 2…* until you're
+   both in, then *CONNECTED TO &lt;NAME&gt;!*
+3. Both tap START. You'll see each other's faces in the corners — small rounded
+   windows labeled **YOU** and their name — while each of you hunts your own
+   street. Live scores for both players sit top-left. A red-dot **ON CAMERA**
+   badge shows whenever you transmit; the **MIC** button mutes you.
+4. Only have a code, not a link? MENU → **HAVE A CODE? PASTE IT HERE** → JOIN
+   WITH CODE.
+
+Good to know, in plain terms:
+
+- **Video is peer-to-peer and end-to-end encrypted — it never passes through a
+  server.** Only the room code, nicknames and scores touch the (free, public)
+  relay that introduces the two devices.
+- **Two on video max.** A third player who joins still sees and shares scores —
+  they just get "ROOM IS FULL FOR VIDEO".
+- **If video can't connect within ~20 seconds** you'll see *VIDEO COULD NOT
+  CONNECT — YOU CAN STILL PLAY AND SEE SCORES*, and that's exactly true: the
+  game and the score race keep working, and it quietly keeps retrying. Most
+  home-to-home connections work on the free setup; a small share of strict
+  networks need a paid TURN relay — there's a labeled slot at the top of
+  index.html if yours ever turns out to be one.
+- Leaving the room stops your camera/mic transmission immediately.
 
 - Scores travel through a **free public MQTT relay** (broker.emqx.io + two fallbacks)
   over secure WebSockets — no account, no server. Only the room code, nickname and
@@ -114,11 +139,14 @@ appear top-left on both screens.
   active player's name and climbing score in giant stencil text, round tallies (●),
   and both screens end under a lightning storm. Brutes count their full +5. If a
   device drops mid-round, the other waits kindly and the round restarts on return.
-- **Live video** rides the same room, peer-to-peer WebRTC, end-to-end encrypted —
-  it never touches a server. The partner appears in a corner picture (drag to any
-  corner, tap to swap). In Versus, THEIR turn puts their video fullscreen behind
-  their score — you're watching your kid hunt — and the 3D renderer politely pauses
-  so the video gets the GPU. An ON CAMERA badge shows whenever you transmit.
+- **Live video** rides the same room, peer-to-peer WebRTC. During free play BOTH
+  faces show at once: the partner in one corner, your own mirrored self-view in
+  the opposite corner, each with a name tag (drag to re-corner, tap the partner
+  to go fullscreen, tap the small selfie to shrink them back). In Versus, THEIR
+  turn puts their video fullscreen behind their score — you're watching your kid
+  hunt — and the 3D renderer politely pauses so the video gets the GPU. If a
+  player reloads or drops, the call rebuilds itself when they come back through
+  the same link.
 
 ## How the 3D night works (quick tour)
 
@@ -260,6 +288,19 @@ language, no kid-friendly elements). **Physical iPad/iPhone smoke test pending.*
   verified cleared, LEAVE ROOM clean. Found + fixed: a dangling `_mode` handler
   call (classic devices publish it) — now explicitly ignored; verified live with a
   fake classic peer in the room (board showed them, no errors).
+- **Video co-op**: full two-context E2E against the real public relay — a second
+  complete game instance in a same-origin iframe (own identity via a test-only
+  URL override), synthetic canvas cameras, real MQTT signaling, real
+  RTCPeerConnections CONNECTED with video flowing both ways. Verified: link
+  auto-join with zero typing (and zero camera prompts before START), both-faces
+  PiP with labels, mute, fullscreen swap, third-joiner "room is full" while the
+  pair stays connected, leave-room stripping the mic instantly, and the graceful
+  20s failure chip with kills still scoring through it. Found + fixed a latent
+  engine deadlock: the partner-reload recovery path ('hi' session rebuild) was
+  receive-only — nothing ever sent 'hi' — and the obvious fix raced the
+  drop-triggered ICE restart; the call now also rebuilds deterministically from
+  the room layer when the partner's roster join stamp changes. Verified live:
+  drop mid-call → rejoin via the same link → reconnected with video both ways.
 - **Tuning pass 1+2** (after the first real-hardware play): found the root cause
   of "still too dark" — the per-frame lightning envelope overwrote the light
   intensities with stale constants, so every init-time boost was dead code one
