@@ -176,12 +176,18 @@
   #roomSec input { display:block; width:100%; margin:8px 0; padding:11px; font-size:16px;
       border:1px solid var(--paneledge); border-radius:4px;
       background:rgba(8,24,14,.85); color:#cfe8c8; font-family:var(--hud); letter-spacing:1px; }
-  #codeRow { display:flex; align-items:center; gap:8px; margin:4px 0 2px; }
-  #genCode { flex:1; font-size:clamp(14px, 4vw, 19px); letter-spacing:1px;
+  #playBtn { display:block; width:100%; padding:15px; font-size:18px; letter-spacing:2px;
+      border:1px solid rgba(122,255,86,.5); border-radius:4px;
+      background:rgba(18,92,44,.75); color:#d6ffc0; margin:6px 0 10px; }
+  #bigCode { font-size:clamp(22px, 7vw, 30px); letter-spacing:2px; text-align:center;
       background:rgba(8,24,14,.7); border:1px dashed var(--paneledge); color:#9fe879;
-      padding:10px 12px; border-radius:4px; text-align:center; font-family:var(--hud); }
-  #newCode { width:46px; height:46px; font-size:20px; border:1px solid var(--paneledge);
-      border-radius:4px; background:rgba(8,24,14,.7); color:#9fe879; }
+      padding:12px; border-radius:4px; margin:6px 0; font-family:var(--hud); }
+  #shareLink { font-size:11px; color:#9db; letter-spacing:.5px; word-break:break-all;
+      margin:4px 0 8px; -webkit-user-select:text; user-select:text; }
+  #copyBtn { width:100%; padding:12px; font-size:15px; border:1px solid var(--paneledge);
+      border-radius:4px; background:rgba(18,92,44,.55); color:#cfe8c8; margin:2px 0 8px; }
+  #startRoom { font-family:var(--hud); font-size:12px; letter-spacing:1px;
+      color:#9fe879; opacity:.85; min-height:16px; text-shadow:0 2px 8px rgba(0,0,0,.9); }
   #roomSec .tiny2 { font-size:11px; opacity:.65; margin:2px 0 8px; letter-spacing:.5px; }
   #joinBtn { width:100%; padding:12px; font-size:15px; border:1px solid var(--paneledge);
       border-radius:4px; background:rgba(18,92,44,.55); color:#cfe8c8; margin:6px 0 4px; }
@@ -290,11 +296,19 @@
   <div id="audState"></div>
   <div id="roomSec">
     <h3>HUNT TOGETHER</h3>
-    <div id="codeRow"><span id="genCode"></span><button id="newCode" aria-label="New code">&#8635;</button></div>
-    <p class="tiny2">Share this code with the other device — or type your own below.</p>
-    <input id="pname" maxlength="12" placeholder="Your name" autocomplete="off">
-    <input id="pcode" maxlength="24" placeholder="Custom code (optional)" autocapitalize="characters" autocomplete="off">
-    <button id="joinBtn">JOIN ROOM</button>
+    <input id="pname" maxlength="12" placeholder="Your name (optional)" autocomplete="off">
+    <button id="playBtn">PLAY WITH SOMEONE</button>
+    <div id="shareSec" class="hidden">
+      <p class="tiny2">SEND THIS LINK — OPENING IT JOINS AUTOMATICALLY</p>
+      <div id="bigCode"></div>
+      <div id="shareLink"></div>
+      <button id="copyBtn">COPY LINK</button>
+    </div>
+    <div id="haveCode">
+      <p class="tiny2">HAVE A CODE? PASTE IT HERE</p>
+      <input id="pcode" maxlength="24" placeholder="like SHADOW-WOLF-47" autocapitalize="characters" autocomplete="off">
+    </div>
+    <button id="joinBtn">JOIN WITH CODE</button>
     <button id="vsBtn" class="hidden">VERSUS — TAKE TURNS (BEST OF 3)</button>
     <div id="roomStatus"></div>
   </div>
@@ -315,6 +329,7 @@
   <p>Wave your hand (or swipe a finger) to slash what comes out of the fog. No lives. No game over. Only the night.</p>
   <button id="btnCam" class="bigbtn">START — CAMERA ON</button>
   <button id="btnTouch" class="softbtn">HUNT WITHOUT CAMERA</button>
+  <div id="startRoom"></div>
   <p class="tiny">The camera lets you slash by waving — video never leaves your device.</p>
   <a id="classicLink" href="classic.html" style="color:#9db; font-size:12px; opacity:.7;">CLASSIC 2D MODE</a>
 </div>
@@ -2491,6 +2506,7 @@ function startGame() {
   nextSpawn = performance.now() + 1500; // versus cadence: first spawn shortly
   // a fresh run opens on a SHORT lull — kids shouldn't wait 9s for monsters
   dir = { st: 'lull', t0: performance.now(), dur: 2000, next: 0, left: 0, lane: 0 };
+  scheduleCallCheck(); // auto-joined via link? the video call can start NOW
   showChip('SLASH WHAT COMES OUT OF THE FOG', 2500);
   try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 }
@@ -2534,10 +2550,38 @@ let room = null;
 const esc = s => String(s).slice(0, 16).replace(/[&<>"']/g,
   ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 
-function setRoomStatus(msg) { $('roomStatus').textContent = msg; }
+function setRoomStatus(msg) {
+  $('roomStatus').textContent = msg;
+  // the title screen mirrors it: a kid who opened a shared link sees the
+  // room come alive before the first tap (#chip renders under #start)
+  $('startRoom').textContent = msg;
+}
+
+// presence: the status line always says who's here, and arrivals/departures
+// get a chip. Driven from renderBoard — the single choke point every join,
+// message, prune and leave already flows through.
+let lastOthers = -1;
+function roomPresence(force) {
+  if (!room) { lastOthers = -1; return; }
+  let others = 0, lastName = '';
+  for (const [pid, d] of room.peers)
+    if (pid !== room.id) { others++; lastName = d.n || 'PLAYER 2'; }
+  if (others === lastOthers && !force) return;
+  const was = lastOthers;
+  lastOthers = others;
+  if (others === 0) {
+    setRoomStatus('WAITING FOR PLAYER 2…');
+    if (was > 0) showChip('PLAYER LEFT — THE LINK STILL WORKS', 4000);
+  } else {
+    const who = String(lastName).slice(0, 12).toUpperCase();
+    setRoomStatus('CONNECTED TO ' + who + '!');
+    if (was <= 0) showChip('CONNECTED TO ' + who + '!', 3500);
+  }
+}
 
 function renderBoard() {
   const b = $('board');
+  roomPresence();
   updateVsBtn();
   scheduleCallCheck(); // membership changed — (re)evaluate who we video-call
   if (!room || versus) { b.innerHTML = ''; return; } // versus draws its own UI
@@ -2632,19 +2676,57 @@ function makeCode() {
          CODE_W2[Math.floor(Math.random() * CODE_W2.length)] + '-' +
          Math.floor(rand(10, 100));
 }
-$('genCode').textContent = makeCode();
-$('newCode').addEventListener('click', () => { $('genCode').textContent = makeCode(); });
+// The share link IS the join flow: opening it lands in the same room with
+// zero typing. pendingCode keeps the panel showing the link while the
+// broker is still connecting (the code exists before the room does).
+let pendingCode = null;
+function shareURL(code) {
+  return location.href.split(/[?#]/)[0] + '?room=' + code;
+}
+function updateRoomUI() {
+  const code = room ? room.code : pendingCode;
+  $('playBtn').classList.toggle('hidden', !!code);
+  $('haveCode').classList.toggle('hidden', !!code);
+  $('shareSec').classList.toggle('hidden', !code);
+  if (code) {
+    $('bigCode').textContent = code;
+    $('shareLink').textContent = shareURL(code);
+  }
+  $('joinBtn').textContent = code ? 'LEAVE ROOM' : 'JOIN WITH CODE';
+}
+$('playBtn').addEventListener('click', () => { if (!room && !pendingCode) joinRoom(makeCode()); });
+$('copyBtn').addEventListener('click', async () => {
+  const txt = $('shareLink').textContent;
+  let copied = false;
+  try { await navigator.clipboard.writeText(txt); copied = true; } catch (e) {}
+  if (!copied) { // older Safari path
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      copied = document.execCommand('copy');
+      ta.remove();
+    } catch (e) {}
+  }
+  $('copyBtn').textContent = copied ? 'COPIED' : 'PRESS AND HOLD THE LINK';
+  setTimeout(() => { $('copyBtn').textContent = 'COPY LINK'; }, 1600);
+});
 
-async function joinRoom() {
+async function joinRoom(codeArg) {
   const name = ($('pname').value.trim() || 'Player').slice(0, 12);
-  const code = ($('pcode').value.trim() || $('genCode').textContent)
+  const code = (codeArg || $('pcode').value.trim() || makeCode())
     .toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
-  if (!code) { setRoomStatus('TAP THE CODE BUTTON OR TYPE ONE'); return; }
+  if (!code) { setRoomStatus('PASTE A CODE OR TAP PLAY WITH SOMEONE'); return; }
   try { localStorage.setItem('zh_name', name); localStorage.setItem('zh_code', code); } catch (e) {}
   myJoinStamp = Date.now(); // my seat number for video pairing
   warnedFull = false;
+  pendingCode = code; // shareable from this instant
+  updateRoomUI();
   $('joinBtn').disabled = true;
-  setRoomStatus('Connecting…');
+  setRoomStatus('CONNECTING…');
   if (!window.mqtt) { // fetch the library only now, never on page load
     await new Promise(res => {
       const s = document.createElement('script');
@@ -2657,13 +2739,16 @@ async function joinRoom() {
     for (const url of BROKERS) {
       try {
         await connectBroker(url, code, name);
-        setRoomStatus('ROOM ' + code + ' — SCORES LIVE');
-        $('joinBtn').textContent = 'LEAVE ROOM';
+        pendingCode = null;
+        updateRoomUI();
         $('joinBtn').disabled = false;
+        roomPresence(true); // says WAITING or CONNECTED, live from here on
         return;
       } catch (e) { /* try the next relay */ }
     }
   }
+  pendingCode = null;
+  updateRoomUI();
   setRoomStatus('RELAY UNREACHABLE — HUNTING SOLO');
   $('joinBtn').disabled = false;
 }
@@ -2682,7 +2767,8 @@ async function reJoin() {
   for (const url of BROKERS) {
     try {
       await connectBroker(url, code, name);
-      setRoomStatus('ROOM ' + code + ' — SCORES LIVE');
+      lastOthers = -1;      // fresh roster: announce presence cleanly, no
+      roomPresence(true);   // spurious PLAYER LEFT chip from the reconnect
       renderBoard();
       healing = false;
       return;
@@ -2690,7 +2776,7 @@ async function reJoin() {
   }
   healing = false;
   setRoomStatus('ROOM LOST — HUNTING SOLO');
-  $('joinBtn').textContent = 'JOIN ROOM';
+  updateRoomUI();
   if (versus) exitVersus(false);
   renderBoard();
 }
@@ -2710,7 +2796,7 @@ function leaveRoom() {
   room = null;
   renderBoard();
   setRoomStatus('');
-  $('joinBtn').textContent = 'JOIN ROOM';
+  updateRoomUI();
 }
 
 if (ROOM_ENABLED) {
@@ -2721,6 +2807,26 @@ if (ROOM_ENABLED) {
   $('joinBtn').addEventListener('click', () => room ? leaveRoom() : joinRoom());
 } else {
   $('roomSec').style.display = 'none';
+}
+
+// Opening a shared link joins its room automatically — the other end (a
+// kid, a grandparent) types NOTHING. Joining MQTT needs no gesture; the
+// camera, audio and the video call still wait for the START tap
+// (checkCall gates on `running`, initAudio only runs from real taps).
+// Invoked from the boot block: joinRoom touches bindings declared later.
+function autoJoinFromURL() {
+  if (!ROOM_ENABLED) return;
+  let q;
+  try { q = new URLSearchParams(location.search); } catch (e) { return; }
+  const tid = q.get('zhid'); // TEST ONLY: same-origin iframes share localStorage,
+  if (tid)                   // so the E2E gives each context its own identity
+    myId = tid.replace(/[^a-z0-9]/gi, '').slice(0, 8) || myId;
+  const tn = q.get('zhname');
+  if (tn) $('pname').value = tn.slice(0, 12);
+  const code = (q.get('room') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+  if (!code) return;
+  $('pcode').value = code;
+  joinRoom(code); // fire-and-forget: failures land in the normal status copy
 }
 
 /* =====================================================================
@@ -3179,6 +3285,8 @@ function scheduleCallCheck() { clearTimeout(callCheckT); callCheckT = setTimeout
 
 function checkCall() {
   if (!ROOM_ENABLED) return;
+  if (!running) return; // calls wait for the START tap — auto-join must never
+                        // pop a camera prompt on a page nobody has touched
   if (!room) { if (call) endCall(null, true); return; }
   const pair = videoPair();
   videoBlocked = room.peers.size >= 2 && !pair.some(x => x.id === myId);
@@ -3459,6 +3567,7 @@ window.__game = {
 initWorld();
 initFx();
 requestAnimationFrame(loop);
+autoJoinFromURL(); // here, not earlier: joinRoom touches late-declared bindings
 window.__threeBooted = true;
 clearTimeout(window.__bootWatch);
 </script>
