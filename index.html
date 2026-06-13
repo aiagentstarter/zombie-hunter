@@ -93,6 +93,26 @@
     { right:12px; top:calc(env(safe-area-inset-top, 0px) + 70px); }
   body[data-pip="tl"] #cam.vid-pip, body[data-pip="tl"] #remoteVid.vid-pip, body[data-pip="tl"] #pipTag
     { left:12px; top:calc(env(safe-area-inset-top, 0px) + 70px); }
+  /* both faces at once: while the partner is the corner PiP, your own face
+     takes the horizontally MIRRORED corner — never stacked underneath it */
+  #cam.vid-self { position:fixed; inset:auto; width:min(30vw, 200px);
+      height:auto; aspect-ratio:4/3; object-fit:cover; border-radius:16px;
+      border:2px solid rgba(255,255,255,.75); box-shadow:0 8px 24px rgba(0,0,0,.45);
+      z-index:16; background:#000; transform:scaleX(-1); opacity:1;
+      filter:brightness(.9) saturate(.85); pointer-events:auto; }
+  #selfTag { position:fixed; z-index:17; width:min(30vw, 200px); aspect-ratio:4/3;
+      pointer-events:none; display:none; }
+  #selfName { position:absolute; left:50%; bottom:6px; transform:translateX(-50%);
+      background:rgba(0,0,0,.55); color:#fff; font-size:13px; font-weight:700;
+      padding:2px 10px; border-radius:999px; }
+  body[data-pip="br"] #cam.vid-self, body[data-pip="br"] #selfTag
+    { left:12px; right:auto; bottom:calc(env(safe-area-inset-bottom, 0px) + 76px); top:auto; }
+  body[data-pip="bl"] #cam.vid-self, body[data-pip="bl"] #selfTag
+    { right:12px; left:auto; bottom:calc(env(safe-area-inset-bottom, 0px) + 76px); top:auto; }
+  body[data-pip="tr"] #cam.vid-self, body[data-pip="tr"] #selfTag
+    { left:12px; right:auto; top:calc(env(safe-area-inset-top, 0px) + 70px); bottom:auto; }
+  body[data-pip="tl"] #cam.vid-self, body[data-pip="tl"] #selfTag
+    { right:12px; left:auto; top:calc(env(safe-area-inset-top, 0px) + 70px); bottom:auto; }
   #sendBadge { position:fixed; top:calc(env(safe-area-inset-top, 0px) + 68px); right:12px;
       z-index:11; background:rgba(0,0,0,.5); color:#fff; font-size:13px; font-weight:700;
       padding:5px 12px; border-radius:999px; display:none; }
@@ -277,6 +297,7 @@
 <video id="remoteVid" playsinline autoplay></video>
 <canvas id="game"></canvas>
 <div id="pipTag"><span id="pipName"></span><button id="muteBtn" aria-label="Mute microphone">MIC</button></div>
+<div id="selfTag"><span id="selfName">YOU</span></div>
 <div id="sendBadge"><span class="dot"></span><span id="sendTxt">ON CAMERA</span></div>
 
 <div id="score">0</div>
@@ -2533,6 +2554,13 @@ $('btnCam').addEventListener('click', async () => {
    ===================================================================== */
 const ROOM_ENABLED = true;
 const MQTT_CDN = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
+// VIDEO RELAY (TURN) — leave empty. Free STUN connects most home-to-home
+// pairs; a small share of strict-NAT network pairs can't link video without
+// a paid TURN relay. If video between two specific homes never connects,
+// rent one (e.g. Twilio/Metered) and add it here — the game and score sync
+// work fine without it:
+//   { urls: 'turn:YOUR-TURN-HOST:3478', username: 'user', credential: 'pass' },
+const TURN_SERVERS = [];
 const BROKERS = [ // tried in order until one connects
   'wss://broker.emqx.io:8084/mqtt',
   'wss://broker.hivemq.com:8884/mqtt',
@@ -2787,6 +2815,9 @@ function leaveRoom() {
   endCall(null, true);          // close the peer connection: nothing transmits anymore
   const ms = cam.srcObject;     // release the mic entirely — it existed for the call
   if (ms) ms.getAudioTracks().forEach(tr => { tr.stop(); ms.removeTrack(tr); });
+  // mic gone -> back to plain playback routing NOW: a hands player waving at
+  // the camera produces no taps, so kickAudio might not run again for minutes
+  try { if (navigator.audioSession) navigator.audioSession.type = sessType(); } catch (e) {}
   myJoinStamp = null; warnedFull = false;
   clearInterval(room.hb); clearInterval(room.prune);
   try {
@@ -3085,8 +3116,7 @@ $('vsBtn').addEventListener('click', () => {
    ===================================================================== */
 const RTC_CFG = { iceServers: [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  // TURN fallback slot — add one here only if both homes have strict NATs:
-  // { urls: 'turn:YOUR-TURN-HOST:3478', username: 'user', credential: 'pass' },
+  ...TURN_SERVERS, // configured up top next to BROKERS — see the comment there
   // (The old free "Open Relay" public TURN was probed 2026-06-11: dead,
   //  zero relay candidates — deliberately not included.)
 ] };
@@ -3195,7 +3225,7 @@ function setVidState(st) {
   if (st === 'connecting') showChip('CONNECTING VIDEO', 4000);
   else if (st === 'connected') showChip('VIDEO LINKED: ' + call.partnerName, 3500);
   else if (st === 'failed')
-    showChip('VIDEO UNAVAILABLE — THE HUNT IS UNAFFECTED', 6000);
+    showChip('VIDEO COULD NOT CONNECT — YOU CAN STILL PLAY AND SEE SCORES', 6000);
   layoutVideos(); updateSendBadge();
 }
 
@@ -3293,7 +3323,7 @@ function checkCall() {
   if (videoBlocked) {
     if (!warnedFull) {
       warnedFull = true;
-      showChip('VIDEO FULL — TWO HUNTERS ALREADY ON CAMERA. SCORES STILL SYNC', 7000);
+      showChip('ROOM IS FULL FOR VIDEO — TWO HUNTERS ALREADY ON CAMERA. SCORES STILL SYNC', 7000);
     }
     if (call) endCall(null, true);
     return;
@@ -3341,6 +3371,10 @@ function layoutVideos() {
   remoteVid.style.display = on ? 'block' : 'none';
   remoteVid.className = on ? (remoteBig ? 'vid-bg' : 'vid-pip') : '';
   cam.classList.toggle('vid-pip', on && remoteBig && camOn); // selfie shrinks to the corner
+  // both faces during normal play: your face takes the mirrored corner
+  cam.classList.toggle('vid-self', on && !remoteBig && camOn);
+  if (on) cam.classList.remove('self-hidden'); // a live call shows both faces
+  $('selfTag').style.display = on && !remoteBig && camOn ? 'block' : 'none';
   const pipHasVideo = remoteBig ? camOn : true;
   $('pipTag').style.display = on && pipHasVideo ? 'block' : 'none';
   $('pipName').textContent = !on ? '' : (remoteBig ? 'YOU' : (call.partnerName || ''));
