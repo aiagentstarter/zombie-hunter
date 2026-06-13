@@ -3141,16 +3141,27 @@ function onRtcMsg(msg) {
   if (videoBlocked) return; // we're the third wheel: no signaling at all
   if (d.type === 'hi') {
     if (!call || call.partnerId !== d.from) { scheduleCallCheck(); return; }
-    if (call.partnerSess && d.sess && d.sess !== call.partnerSess
-        && Date.now() - lastRebuild > 3000) {
-      lastRebuild = Date.now(); // partner reloaded their page: start over
-      startCall(call.partnerId, call.partnerName);
+    // fall through: the sess check below owns the reload case
+  }
+  if (call && d.from === call.partnerId) {
+    // Partner is suddenly a NEW page session (they reloaded / rejoined):
+    // an old pc can never converge with it — it would keep answering with
+    // stale credentials while 'disconnected' sits in neither rebuild set.
+    // Checked on EVERY signal type, and NEVER absorbed without a rebuild:
+    // the drop itself sends our pc 'failed', whose restartIce bumps
+    // lastRebuild right as the rejoiner's traffic lands — if the limiter
+    // routed a foreign sess into the absorb path even once, the trigger
+    // would disarm forever. Dropping instead costs one signal cycle; the
+    // partner re-announces (hi + offer) every rebuild tick.
+    if (call.partnerSess && d.sess && d.sess !== call.partnerSess) {
+      if (Date.now() - lastRebuild <= 3000) return; // too soon — drop, keep armed
+      lastRebuild = Date.now();
+      startCall(call.partnerId, call.partnerName); // fresh pc, fresh handshake
       return;
     }
-    call.partnerSess = d.sess || call.partnerSess;
-    return;
+    if (d.type === 'hi') { call.partnerSess = d.sess || call.partnerSess; return; }
+    handleSignal(d);
   }
-  if (call && d.from === call.partnerId) handleSignal(d);
 }
 
 // the "perfect negotiation" receive side — works no matter who offers first
@@ -3234,7 +3245,17 @@ async function startCall(partnerId, partnerName) {
   const pc = new RTCPeerConnection(RTC_CFG);
   call = { pc, partnerId, partnerName, polite: myId > partnerId, makingOffer: false,
            ignoreOffer: false, pending: [], partnerSess: '', connState: '',
-           partnerLostAt: 0, bornAt: Date.now() };
+           partnerLostAt: 0, bornAt: Date.now(),
+           // the partner's roster join stamp at call birth: if it ever
+           // changes they REJOINED, and this pc can never reach them again
+           partnerJ: (room && room.peers.get(partnerId) || {}).j || 0 };
+  // Announce this session BEFORE the first offer can fire. The 'hi' receive
+  // path (partner sess changed -> rebuild) existed but nothing ever SENT hi,
+  // so a partner who reloaded mid-call deadlocked: the survivor kept
+  // answering fresh offers on its zombie pc ('disconnected' is in neither
+  // rebuild set), and the rejoiner re-offered into the void every 10s.
+  // One line arms the designed recovery. Old clients already understand it.
+  rtcSend(partnerId, { type: 'hi' });
   pc.onnegotiationneeded = async () => {
     try {
       call.makingOffer = true;
@@ -3339,6 +3360,17 @@ function checkCall() {
   }
   if (call && call.partnerId === other.id) {
     call.partnerLostAt = 0;
+    // the partner REJOINED (new roster join stamp): their old pc is gone,
+    // ours can only answer into the void — rebuild from the room layer,
+    // where there are no signaling-order races. The 800ms cadence retries
+    // until the fresh handshake lands; the failed/stuck ladder below keeps
+    // covering transient ICE flaps exactly as it does on first connect.
+    if (call.partnerJ && pd.j && pd.j !== call.partnerJ
+        && Date.now() - lastRebuild > 3000) {
+      lastRebuild = Date.now();
+      startCall(other.id, call.partnerName);
+      return;
+    }
     const cs = call.pc.connectionState;
     // never finished connecting and it's been a while → something deadlocked
     const stuck = (cs === 'new' || cs === 'connecting') && Date.now() - call.bornAt > 10000;
@@ -3510,6 +3542,7 @@ window.__game = {
     polite: call.polite, state: call.connState, sig: call.pc.signalingState,
     conn: call.pc.connectionState, ice: call.pc.iceConnectionState,
     hasRemote: !!remoteVid.srcObject, remoteW: remoteVid.videoWidth,
+    partnerSess: call.partnerSess, bornAt: call.bornAt, lastRebuild,
     senders: call.pc.getSenders().filter(sn => sn.track).map(sn => sn.track.kind) }; },
   get videoBlocked() { return videoBlocked; },
   get micMuted() { return micMuted; },
@@ -3584,6 +3617,38 @@ window.__game = {
   enableHandsForTest() {
     camOn = true; handsOK = true; handsStatus = 'on';
     lastHandSeen = performance.now();
+  },
+  // TEST ONLY: a synthetic camera so video calls run headless. Animated
+  // canvas (setInterval — survives RAF throttling) -> captureStream, plus a
+  // silent oscillator audio track so ensureMedia never needs getUserMedia
+  // and the mute/mic-session paths get a real track. The throwaway
+  // AudioContext here never touches the game's frozen AC.
+  fakeCam(label) {
+    if (this._fc) return true;
+    const cv = document.createElement('canvas');
+    cv.width = 320; cv.height = 240;
+    const cx = cv.getContext('2d');
+    let h = 0;
+    this._fc = setInterval(() => {
+      h = (h + 11) % 360;
+      cx.fillStyle = 'hsl(' + h + ',80%,45%)';
+      cx.fillRect(0, 0, 320, 240);
+      cx.fillStyle = '#fff';
+      cx.font = '48px sans-serif';
+      cx.fillText(label || 'FAKE', 30, 130);
+    }, 100);
+    const st = cv.captureStream(15);
+    try {
+      const a = new (window.AudioContext || window.webkitAudioContext)();
+      const o = a.createOscillator(), d = a.createMediaStreamDestination();
+      o.connect(d); o.start();
+      st.addTrack(d.stream.getAudioTracks()[0]);
+    } catch (e) {}
+    cam.srcObject = st;
+    cam.play().catch(() => {});
+    cam.style.display = 'block';
+    camOn = true;
+    return true;
   },
   // feed synthetic index-fingertip positions ([nx,ny] in camera coords, null =
   // empty frame) through the REAL detection pipeline, one per detection tick
